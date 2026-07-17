@@ -1,0 +1,18 @@
+[package]
+name = "mircuda-macros"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Checked source macros for mircuda CUDA kernels"
+repository.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2.workspace = true
+quote.workspace = true
+syn.workspace = true
+
+[lints]
+workspace = true

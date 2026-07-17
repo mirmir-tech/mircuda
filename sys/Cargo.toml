@@ -1,0 +1,30 @@
+[package]
+name = "mircuda-sys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Private native CUDA integration for mircuda"
+repository.workspace = true
+build = "build.rs"
+
+[features]
+default = ["cutlass"]
+cutlass = []
+
+[build-dependencies]
+cc = "1"
+
+[dependencies]
+thiserror.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+cudarc = { version = "0.19.8", default-features = false, features = [
+    "cuda-version-from-build-system",
+    "driver",
+    "dynamic-linking",
+    "nvrtc",
+    "std",
+] }
+
+[lints]
+workspace = true

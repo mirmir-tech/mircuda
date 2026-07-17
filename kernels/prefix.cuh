@@ -1,0 +1,1 @@
+#define MIRCUDA_PREFIX 1
