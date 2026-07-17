@@ -1,8 +1,7 @@
 # Mircuda Agent Notes
 
-This child repository inherits the engineering and repository-boundary rules
-from the Workmir `AGENTS.md`. The notes below contain only mircuda-specific
-constraints needed when the child is used or released independently.
+This repository contains the standalone `mircuda` crate and its private support
+crates. The notes below define its complete project-specific constraints.
 
 ## Purpose
 
@@ -13,6 +12,15 @@ tokenization, sampling, scheduling, or K/V cache policy.
 
 ## Hard Rules
 
+- Rust source files must never exceed 250 lines; split large modules by focused
+  responsibility.
+- Use `thiserror` conversions and `?`; reserve `map_err` for foreign boundaries
+  that require additional context.
+- Keep nightly rustfmt and clippy clean with all targets and features.
+- Do not add Python or PyTorch to any runtime or build path.
+- Dependencies on separately released projects must use versioned crates.io
+  entries. Relative paths are limited to crates owned by this workspace.
+- Do not commit or publish automatically without explicit authorization.
 - Keep raw CUDA handles and every unsafe operation inside `mircuda-sys`.
 - Do not expose cudarc or CUDA C types in the public API.
 - Every allocation, transfer, kernel launch, and library call uses an explicit
