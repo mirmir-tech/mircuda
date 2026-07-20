@@ -1,3 +1,7 @@
+mod vector;
+
+pub use vector::{BlockScaledFp4VectorPlan, BlockScaledFp4VectorSpec};
+
 use crate::{Context, DeviceBuffer, Error, Result, Stream, bf16};
 
 /// Fixed geometry for block-scaled `FP4 × FP4 → BF16` multiplication.

@@ -9,12 +9,16 @@ repository.workspace = true
 keywords = ["cuda", "gpu", "nvidia", "inference"]
 categories = ["api-bindings", "hardware-support"]
 
+[[test]]
+name = "cutlass"
+path = "tests/cutlass/mod.rs"
+
 [workspace]
 members = ["macros", "sys"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://codeberg.org/mirmir/mircuda"
@@ -25,7 +29,7 @@ half = "2"
 parking_lot = "0.12"
 proc-macro2 = "1"
 quote = "1"
-syn = { version = "2", features = ["full"] }
+syn = { version = "3", features = ["full"] }
 thiserror = "2"
 
 [features]
@@ -35,8 +39,8 @@ cutlass = ["mircuda-sys/cutlass"]
 [dependencies]
 blake3.workspace = true
 half.workspace = true
-mircuda-macros = { path = "macros", version = "0.1" }
-mircuda-sys = { path = "sys", version = "0.1" }
+mircuda-macros = { path = "macros", version = "0.2" }
+mircuda-sys = { path = "sys", version = "0.2" }
 parking_lot.workspace = true
 thiserror.workspace = true
 

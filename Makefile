@@ -29,10 +29,7 @@ bootstrap-cutlass: ## Clone the pinned header-only CUTLASS dependency.
 	@git -C "$(CUTLASS_DIR)" describe --tags --exact-match
 
 cutlass-check: doctor bootstrap-cutlass ## Build and test the native CUTLASS backend.
-	@cargo test -p mircuda --test cutlass_dense
-	@cargo test -p mircuda --test cutlass_fp4
-	@cargo test -p mircuda --test cutlass_fp8
-	@cargo test -p mircuda --test cutlass_grouped_fp4
+	@cargo test -p mircuda --test cutlass
 
 docs: ## Build rustdoc for the complete public workspace API.
 	@RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps

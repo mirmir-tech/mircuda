@@ -1,5 +1,7 @@
 #![cfg(all(target_os = "linux", feature = "cutlass"))]
 
+mod vector;
+
 use mircuda::{
     BlockScaledFp4Plan, BlockScaledFp4Spec, Context, DeviceBuffer, DeviceElement, Driver,
     MemoryPool, Stream, bf16,

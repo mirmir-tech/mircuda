@@ -1,19 +1,14 @@
 use crate::{Error, Result};
 
-#[path = "platform_stub/compiler.rs"]
 mod compiler;
-#[path = "platform_stub/graph.rs"]
 mod graph;
-#[path = "platform_stub/memory.rs"]
 mod memory;
-#[path = "platform_stub/profile.rs"]
 mod profile;
 pub use compiler::{CompileSpec, CompiledPtx, compiler_version};
 pub use graph::{CaptureMode, Graph, KernelNode};
 pub use profile::ProfilerRange;
 
 #[cfg(feature = "cutlass")]
-#[path = "platform_stub/cutlass.rs"]
 mod cutlass;
 #[cfg(feature = "cutlass")]
 pub use cutlass::{

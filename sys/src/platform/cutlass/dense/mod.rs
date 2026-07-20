@@ -1,6 +1,9 @@
+mod vector;
+
 use std::{ffi::c_void, ptr::NonNull, sync::Arc};
 
 use cudarc::driver::CudaStream;
+pub use vector::{DenseVectorPlan, DenseVectorSpec};
 
 use super::super::{
     driver::{Context, Stream},

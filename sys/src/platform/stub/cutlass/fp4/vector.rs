@@ -1,4 +1,4 @@
-use super::{Context, DeviceBuffer, Stream, unsupported};
+use super::super::super::{Context, DeviceBuffer, Stream, unsupported};
 use crate::Result;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

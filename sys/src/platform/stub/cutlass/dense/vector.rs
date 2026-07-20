@@ -1,5 +1,5 @@
 use super::{
-    super::{Context, DeviceBuffer, Stream, unsupported},
+    super::super::{Context, DeviceBuffer, Stream, unsupported},
     DenseMatmulDataType,
 };
 use crate::Result;

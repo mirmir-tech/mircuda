@@ -40,23 +40,17 @@ impl IndexedGroupedFp4Plan {
         Err(unsupported())
     }
 }
-#[path = "cutlass/dense.rs"]
 mod dense;
-#[path = "cutlass/dense_vector.rs"]
-mod dense_vector;
-#[path = "cutlass/fp4.rs"]
 mod fp4;
-#[path = "cutlass/fp4_vector.rs"]
-mod fp4_vector;
-#[path = "cutlass/fp8_vector.rs"]
 mod fp8_vector;
 
-pub use dense::{DenseMatmulDataType, DenseMatmulPlan, DenseMatmulSpec};
-pub use dense_vector::{DenseVectorPlan, DenseVectorSpec};
-pub use fp4::{BlockScaledFp4Plan, BlockScaledFp4Spec};
-pub use fp4_vector::{BlockScaledFp4VectorPlan, BlockScaledFp4VectorSpec};
+pub use dense::{
+    DenseMatmulDataType, DenseMatmulPlan, DenseMatmulSpec, DenseVectorPlan, DenseVectorSpec,
+};
+pub use fp4::{
+    BlockScaledFp4Plan, BlockScaledFp4Spec, BlockScaledFp4VectorPlan, BlockScaledFp4VectorSpec,
+};
 pub use fp8_vector::{BlockwiseFp8VectorPlan, BlockwiseFp8VectorSpec};
-#[path = "cutlass/variable_grouped_fp4.rs"]
 mod variable_grouped_fp4;
 pub use variable_grouped_fp4::{
     PairedVariableGroupedFp4Plan, VariableGroupedFp4Plan, VariableGroupedFp4Spec,

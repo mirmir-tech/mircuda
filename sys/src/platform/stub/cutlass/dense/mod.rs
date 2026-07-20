@@ -1,27 +1,40 @@
 use super::super::{Context, DeviceBuffer, Stream, unsupported};
 use crate::Result;
 
+mod vector;
+
+pub use vector::{DenseVectorPlan, DenseVectorSpec};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct BlockScaledFp4Spec {
+pub enum DenseMatmulDataType {
+    F16,
+    Bf16,
+    F32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DenseMatmulSpec {
     pub m: usize,
     pub n: usize,
     pub k: usize,
+    pub input_type: DenseMatmulDataType,
+    pub output_type: DenseMatmulDataType,
 }
 
 #[derive(Debug)]
-pub struct BlockScaledFp4Plan;
+pub struct DenseMatmulPlan;
 
 impl Context {
-    pub const fn create_block_scaled_fp4_plan(
+    pub const fn create_dense_matmul_plan(
         &self,
         _stream: &Stream,
-        _spec: BlockScaledFp4Spec,
-    ) -> Result<BlockScaledFp4Plan> {
+        _spec: DenseMatmulSpec,
+    ) -> Result<DenseMatmulPlan> {
         Err(unsupported())
     }
 }
 
-impl BlockScaledFp4Plan {
+impl DenseMatmulPlan {
     #[must_use]
     pub const fn workspace_bytes(&self) -> usize {
         0
@@ -32,11 +45,10 @@ impl BlockScaledFp4Plan {
         &mut self,
         _stream: &Stream,
         _a: &DeviceBuffer,
-        _a_scales: &DeviceBuffer,
         _b: &DeviceBuffer,
-        _b_scales: &DeviceBuffer,
         _c: &DeviceBuffer,
         _alpha: f32,
+        _beta: f32,
     ) -> Result<()> {
         Err(unsupported())
     }

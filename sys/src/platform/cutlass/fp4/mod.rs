@@ -8,6 +8,10 @@ use super::super::{
 };
 use crate::{Error, Result};
 
+mod vector;
+
+pub use vector::{BlockScaledFp4VectorPlan, BlockScaledFp4VectorSpec};
+
 unsafe extern "C" {
     fn mircuda_fp4_create(
         m: i32,

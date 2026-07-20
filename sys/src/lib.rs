@@ -1,7 +1,7 @@
 #[cfg(target_os = "linux")]
 mod platform;
 #[cfg(not(target_os = "linux"))]
-#[path = "platform_stub.rs"]
+#[path = "platform/stub/mod.rs"]
 mod platform;
 
 #[cfg(feature = "cutlass")]

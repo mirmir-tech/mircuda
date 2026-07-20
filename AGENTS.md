@@ -14,6 +14,11 @@ tokenization, sampling, scheduling, or K/V cache policy.
 
 - Rust source files must never exceed 250 lines; split large modules by focused
   responsibility.
+- Split modules only as `module/mod.rs` plus focused files such as
+  `module/feature.rs`. Never flatten a child into a sibling such as
+  `module_feature.rs`. Tests follow the same rule: use `module/tests.rs` or
+  `module/tests/feature.rs`, not `module_tests.rs` or `feature_tests.rs` for an
+  existing module.
 - Use `thiserror` conversions and `?`; reserve `map_err` for foreign boundaries
   that require additional context.
 - Keep nightly rustfmt and clippy clean with all targets and features.
