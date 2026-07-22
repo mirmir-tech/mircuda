@@ -124,7 +124,7 @@ dependencies = [
 
 [[package]]
 name = "mircuda"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "blake3",
  "half",
@@ -136,7 +136,7 @@ dependencies = [
 
 [[package]]
 name = "mircuda-macros"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -145,7 +145,7 @@ dependencies = [
 
 [[package]]
 name = "mircuda-sys"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "cc",
  "cudarc",
@@ -293,3 +293,11 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
+
+[[patch.unused]]
+name = "libmir"
+version = "0.3.0"
+
+[[patch.unused]]
+name = "mirtal"
+version = "0.3.0"
