@@ -21,6 +21,15 @@ pub enum Error {
         /// Size of one element.
         element_bytes: usize,
     },
+    /// The CUDA memory pool rejected a device allocation.
+    #[error("CUDA device allocation of {bytes} bytes failed: {source}")]
+    DeviceAllocation {
+        /// Requested allocation size in bytes.
+        bytes: usize,
+        /// Failure returned by the native CUDA boundary.
+        #[source]
+        source: mircuda_sys::Error,
+    },
     /// Source and target buffers have different lengths.
     #[error("CUDA transfer length mismatch: source {source_len}, target {target_len}")]
     LengthMismatch {
@@ -32,6 +41,9 @@ pub enum Error {
     /// A device-to-device copy range is empty, overflows, or exceeds an allocation.
     #[error("invalid CUDA device transfer range")]
     InvalidTransferRange,
+    /// A typed device view does not divide the underlying allocation exactly.
+    #[error("CUDA device allocation cannot be viewed as the requested element type")]
+    InvalidDeviceView,
     /// Launch geometry is empty or exceeds CUDA's representable grid.
     #[error("invalid CUDA launch geometry")]
     InvalidLaunch,

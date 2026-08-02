@@ -133,8 +133,12 @@ impl MemoryPool {
         zeroed: bool,
     ) -> Result<DeviceBuffer<T>> {
         let bytes = allocation_bytes::<T>(len)?;
+        let native = match self.native.allocate(&stream.native, bytes, zeroed) {
+            Ok(native) => native,
+            Err(source) => return Err(Error::DeviceAllocation { bytes, source }),
+        };
         Ok(DeviceBuffer {
-            native: Arc::new(self.native.allocate(&stream.native, bytes, zeroed)?),
+            native: Arc::new(native),
             len,
             marker: PhantomData,
         })
@@ -158,6 +162,22 @@ impl<T: DeviceElement> DeviceBuffer<T> {
     #[must_use]
     pub fn bytes(&self) -> usize {
         self.native.bytes()
+    }
+
+    /// Returns a differently typed view over the same device allocation.
+    ///
+    /// The view retains the allocation and performs no transfer or conversion.
+    pub fn reinterpret<U: DeviceElement>(&self) -> Result<DeviceBuffer<U>> {
+        let element_bytes = std::mem::size_of::<U>();
+        let len = self.bytes().checked_div(element_bytes).ok_or(Error::InvalidDeviceView)?;
+        if len == 0 || len.checked_mul(element_bytes) != Some(self.bytes()) {
+            return Err(Error::InvalidDeviceView);
+        }
+        Ok(DeviceBuffer {
+            native: self.native.clone(),
+            len,
+            marker: PhantomData,
+        })
     }
 }
 

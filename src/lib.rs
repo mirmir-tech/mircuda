@@ -1,6 +1,8 @@
 #![doc = include_str!("../README.md")]
 #![deny(missing_docs)]
 
+extern crate self as mircuda;
+
 mod compiler;
 #[cfg(feature = "cutlass")]
 mod cutlass;
@@ -10,16 +12,21 @@ mod event;
 mod graph;
 mod launch;
 mod memory;
+mod mxfp8;
 mod profile;
 mod source;
+#[cfg(feature = "cublaslt")]
+mod vendor;
 
 pub use compiler::{CompileCacheStats, CompileOptions, Compiler, CompilerConfig, Module};
 #[cfg(feature = "cutlass")]
 pub use cutlass::{
     BlockScaledFp4Plan, BlockScaledFp4Spec, BlockScaledFp4VectorPlan, BlockScaledFp4VectorSpec,
-    BlockwiseFp8VectorPlan, BlockwiseFp8VectorSpec, DenseMatmulElement, DenseMatmulOutput,
-    DenseMatmulPlan, DenseMatmulSpec, DenseVectorPlan, DenseVectorSpec, IndexedGroupedFp4Plan,
-    IndexedGroupedFp4Spec, PairedVariableGroupedFp4Launch, PairedVariableGroupedFp4Plan,
+    BlockScaledMxFp8Plan, BlockScaledMxFp8Spec, BlockwiseFp8VectorPlan, BlockwiseFp8VectorSpec,
+    DenseMatmulElement, DenseMatmulOutput, DenseMatmulPlan, DenseMatmulSpec, DenseVectorPlan,
+    DenseVectorSpec, FmhaBf16Plan, FmhaBf16Spec, IndexedGroupedFp4Plan, IndexedGroupedFp4Spec,
+    PairedVariableGroupedFp4Launch, PairedVariableGroupedFp4Plan, ScaledFp8Plan, ScaledFp8Scale,
+    ScaledFp8Spec, ScaledFp8WeightScale, VariableGroupedBf16Plan, VariableGroupedBf16Spec,
     VariableGroupedFp4Metadata, VariableGroupedFp4Operands, VariableGroupedFp4Plan,
     VariableGroupedFp4Spec,
 };
@@ -33,7 +40,15 @@ pub use launch::{
 };
 pub use memory::{DeviceBuffer, DeviceElement, MemoryPool, MemoryPoolStats, PinnedBuffer};
 pub use mircuda_macros::{cuda_export, cuda_kernel};
+pub use mxfp8::{
+    MxFp8Embedding, MxFp8EmbeddingOperands, MxFp8EmbeddingSpec, MxFp8Gathered,
+    MxFp8GatheredOperands, MxFp8GatheredSpec, MxFp8Matmul, MxFp8Spec,
+};
+#[cfg(feature = "cutlass")]
+pub use mxfp8::{MxFp8TensorCore, MxFp8TensorCoreScratch};
 pub use profile::ProfilerRange;
+#[cfg(feature = "cublaslt")]
+pub use vendor::{CublasBf16Plan, CublasBf16Spec, CublasLtBf16Plan, CublasLtBf16Spec};
 
 /// Version of the linked CUTLASS AOT backend encoded as `major * 10000 + minor * 100 + patch`.
 #[cfg(all(target_os = "linux", feature = "cutlass"))]
