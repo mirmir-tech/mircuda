@@ -4,6 +4,10 @@ use mircuda::{
     Context, DenseMatmulPlan, DenseMatmulSpec, DenseVectorPlan, DenseVectorSpec, DeviceBuffer,
     DeviceElement, Driver, MemoryPool, Stream, bf16, f16,
 };
+#[cfg(feature = "cublaslt")]
+use mircuda::{CublasBf16Plan, CublasBf16Spec, CublasLtBf16Plan, CublasLtBf16Spec};
+
+mod vector;
 
 const N: usize = 128;
 const K: usize = 128;
@@ -77,7 +81,21 @@ fn dense_f16_supports_decode() -> mircuda::Result<()> {
 }
 
 #[test]
-fn dense_bf16_vector_matches_tensor_core_gemm() -> mircuda::Result<()> {
+fn dense_f16_vector_supports_alpha_and_beta() -> mircuda::Result<()> {
+    let (context, stream, pool) = environment()?;
+    let input = copy_device(&context, &stream, &pool, &[f16::ONE; K])?;
+    let weight = copy_device(&context, &stream, &pool, &vec![f16::ONE; N * K])?;
+    let mut output = copy_device(&context, &stream, &pool, &[f16::ONE; N])?;
+    DenseVectorPlan::new(&context, &stream, DenseVectorSpec::new(N, K)?)?
+        .execute(&stream, &input, &weight, &mut output, 0.5, 1.0)?;
+    let actual = read_device(&context, &stream, &output)?;
+    assert!(actual.iter().all(|value| *value == f16::from_f32(65.0)));
+    Ok(())
+}
+
+#[cfg(feature = "cublaslt")]
+#[test]
+fn cublaslt_bf16_matches_tensor_core_gemm() -> mircuda::Result<()> {
     const OUTPUTS: usize = 257;
     const FEATURES: usize = 2_816;
     let (context, stream, pool) = environment()?;
@@ -93,25 +111,49 @@ fn dense_bf16_vector_matches_tensor_core_gemm() -> mircuda::Result<()> {
     let mut actual = copy_device(&context, &stream, &pool, &[bf16::NAN; OUTPUTS])?;
     DenseMatmulPlan::new(&context, &stream, DenseMatmulSpec::new(1, OUTPUTS, FEATURES)?)?
         .execute(&stream, &input, &weight, &mut expected, 1.0, 0.0)?;
-    DenseVectorPlan::new(&context, &stream, DenseVectorSpec::new(OUTPUTS, FEATURES)?)?
+    CublasLtBf16Plan::new(&context, &stream, CublasLtBf16Spec::new(1, OUTPUTS, FEATURES)?)?
         .execute(&stream, &input, &weight, &mut actual, 1.0, 0.0)?;
     let expected = read_device(&context, &stream, &expected)?;
     let actual = read_device(&context, &stream, &actual)?;
     assert!(actual.iter().all(|value| value.to_f32().is_finite()));
-    let maximum = |values: &[bf16]| {
-        values
-            .iter()
-            .enumerate()
-            .max_by(|left, right| left.1.to_f32().total_cmp(&right.1.to_f32()))
-            .map(|(index, _)| index)
-    };
-    assert_eq!(maximum(&actual), maximum(&expected));
     let error = expected
         .iter()
         .zip(&actual)
         .map(|(left, right)| (left.to_f32() - right.to_f32()).abs())
         .fold(0.0_f32, f32::max);
-    assert!(error <= 0.125, "maximum BF16 GEMV difference: {error}");
+    assert!(error <= 0.125, "maximum cuBLASLt BF16 difference: {error}");
+    Ok(())
+}
+
+#[cfg(feature = "cublaslt")]
+#[test]
+fn cublas_bf16_matches_tensor_core_gemm() -> mircuda::Result<()> {
+    const OUTPUTS: usize = 257;
+    const FEATURES: usize = 2_816;
+    let (context, stream, pool) = environment()?;
+    let input = (0..FEATURES)
+        .map(|index| Ok(bf16::from_f32(f32::from(u8::try_from(index % 31)?) / 32.0 - 0.5)))
+        .collect::<mircuda::Result<Vec<_>>>()?;
+    let weight = (0..OUTPUTS * FEATURES)
+        .map(|index| Ok(bf16::from_f32(f32::from(u8::try_from(index % 17)?) / 64.0 - 0.125)))
+        .collect::<mircuda::Result<Vec<_>>>()?;
+    let input = copy_device(&context, &stream, &pool, &input)?;
+    let weight = copy_device(&context, &stream, &pool, &weight)?;
+    let mut expected = copy_device(&context, &stream, &pool, &[bf16::ZERO; OUTPUTS])?;
+    let mut actual = copy_device(&context, &stream, &pool, &[bf16::NAN; OUTPUTS])?;
+    DenseMatmulPlan::new(&context, &stream, DenseMatmulSpec::new(1, OUTPUTS, FEATURES)?)?
+        .execute(&stream, &input, &weight, &mut expected, 1.0, 0.0)?;
+    CublasBf16Plan::new(&context, &stream, CublasBf16Spec::new(1, OUTPUTS, FEATURES)?)?
+        .execute(&stream, &input, &weight, &mut actual, 1.0, 0.0)?;
+    let expected = read_device(&context, &stream, &expected)?;
+    let actual = read_device(&context, &stream, &actual)?;
+    assert!(actual.iter().all(|value| value.to_f32().is_finite()));
+    let error = expected
+        .iter()
+        .zip(&actual)
+        .map(|(left, right)| (left.to_f32() - right.to_f32()).abs())
+        .fold(0.0_f32, f32::max);
+    assert!(error <= 0.125, "maximum cuBLAS BF16 difference: {error}");
     Ok(())
 }
 

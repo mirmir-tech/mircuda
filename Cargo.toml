@@ -21,7 +21,7 @@ resolver = "3"
 version = "0.3.0"
 edition = "2024"
 license = "Apache-2.0"
-repository = "https://codeberg.org/mirmir/mircuda"
+repository = "https://github.com/mirmir-tech/mircuda"
 
 [workspace.dependencies]
 blake3 = "1"
@@ -33,7 +33,8 @@ syn = { version = "3", features = ["full"] }
 thiserror = "2"
 
 [features]
-default = ["cutlass"]
+default = ["cublaslt", "cutlass"]
+cublaslt = ["mircuda-sys/cublaslt"]
 cutlass = ["mircuda-sys/cutlass"]
 
 [dependencies]

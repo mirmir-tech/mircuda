@@ -8,7 +8,7 @@
 namespace mircuda::dense_vector {
 
 constexpr int kWarps = 8;
-constexpr int kRowsPerWarp = 8;
+constexpr int kRowsPerWarp = 4;
 constexpr int kRowsPerBlock = kWarps * kRowsPerWarp;
 
 template <typename Element>
@@ -16,14 +16,30 @@ struct Convert;
 
 template <>
 struct Convert<__half> {
+  using Pair = __half2;
+
   __device__ static float to_float(__half value) { return __half2float(value); }
+  __device__ static float2 pair_to_float(const __half* values) {
+    return __half22float2(*reinterpret_cast<const Pair*>(values));
+  }
+  __device__ static float2 pair_bits_to_float(unsigned int values) {
+    return __half22float2(*reinterpret_cast<const Pair*>(&values));
+  }
   __device__ static __half from_float(float value) { return __float2half_rn(value); }
 };
 
 template <>
 struct Convert<__nv_bfloat16> {
+  using Pair = __nv_bfloat162;
+
   __device__ static float to_float(__nv_bfloat16 value) {
     return __bfloat162float(value);
+  }
+  __device__ static float2 pair_to_float(const __nv_bfloat16* values) {
+    return __bfloat1622float2(*reinterpret_cast<const Pair*>(values));
+  }
+  __device__ static float2 pair_bits_to_float(unsigned int values) {
+    return __bfloat1622float2(*reinterpret_cast<const Pair*>(&values));
   }
   __device__ static __nv_bfloat16 from_float(float value) {
     return __float2bfloat16_rn(value);
@@ -37,19 +53,47 @@ __global__ void kernel(const Element* input, const Element* weight,
   const int warp = threadIdx.x >> 5;
   const int first_row = blockIdx.x * kRowsPerBlock + warp * kRowsPerWarp;
   float sums[kRowsPerWarp] = {};
-  if ((k & 1) == 0) {
-    const int pairs = k / 2;
-    const auto* input_pairs = reinterpret_cast<const Element*>(input);
-    for (int pair = lane; pair < pairs; pair += 32) {
-      const float left = Convert<Element>::to_float(input_pairs[2 * pair]);
-      const float right = Convert<Element>::to_float(input_pairs[2 * pair + 1]);
+  if ((k & 7) == 0) {
+    for (int column = lane * 8; column < k; column += 256) {
+      const uint4 input_bits =
+          *reinterpret_cast<const uint4*>(input + column);
+      const float2 input_pairs[4] = {
+          Convert<Element>::pair_bits_to_float(input_bits.x),
+          Convert<Element>::pair_bits_to_float(input_bits.y),
+          Convert<Element>::pair_bits_to_float(input_bits.z),
+          Convert<Element>::pair_bits_to_float(input_bits.w),
+      };
 #pragma unroll
       for (int item = 0; item < kRowsPerWarp; ++item) {
         const int row = first_row + item;
         if (row < n) {
-          const Element* values = weight + row * k + 2 * pair;
-          sums[item] = fmaf(left, Convert<Element>::to_float(values[0]), sums[item]);
-          sums[item] = fmaf(right, Convert<Element>::to_float(values[1]), sums[item]);
+          const uint4 weight_bits =
+              *reinterpret_cast<const uint4*>(weight + row * k + column);
+          const unsigned int pairs[4] = {
+              weight_bits.x, weight_bits.y, weight_bits.z, weight_bits.w};
+#pragma unroll
+          for (int pair = 0; pair < 4; ++pair) {
+            const float2 values =
+                Convert<Element>::pair_bits_to_float(pairs[pair]);
+            sums[item] = fmaf(input_pairs[pair].x, values.x, sums[item]);
+            sums[item] = fmaf(input_pairs[pair].y, values.y, sums[item]);
+          }
+        }
+      }
+    }
+  } else if ((k & 1) == 0) {
+    const int pairs = k / 2;
+    for (int pair = lane; pair < pairs; pair += 32) {
+      const float2 input_pair =
+          Convert<Element>::pair_to_float(input + 2 * pair);
+#pragma unroll
+      for (int item = 0; item < kRowsPerWarp; ++item) {
+        const int row = first_row + item;
+        if (row < n) {
+          const float2 values =
+              Convert<Element>::pair_to_float(weight + row * k + 2 * pair);
+          sums[item] = fmaf(input_pair.x, values.x, sums[item]);
+          sums[item] = fmaf(input_pair.y, values.y, sums[item]);
         }
       }
     }
