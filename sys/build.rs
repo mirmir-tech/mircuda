@@ -145,8 +145,10 @@ fn compile_flash_attention(configure: &impl Fn(&mut cc::Build)) -> Result<(), Bo
     let cutlass = flash.join("csrc/cutlass/include");
     let specialization64 = source.join("flash_fwd_split_hdim64_bf16_causal_sm80.cu");
     let specialization128 = source.join("flash_fwd_split_hdim128_bf16_causal_sm80.cu");
+    let specialization256 = source.join("flash_fwd_split_hdim256_bf16_causal_sm80.cu");
     if !specialization64.is_file()
         || !specialization128.is_file()
+        || !specialization256.is_file()
         || !cutlass.join("cutlass/cutlass.h").is_file()
     {
         return Err(
@@ -169,6 +171,7 @@ fn compile_flash_attention(configure: &impl Fn(&mut cc::Build)) -> Result<(), Bo
         .define("FLASHATTENTION_DISABLE_PYBIND", None)
         .file(specialization64)
         .file(specialization128)
+        .file(specialization256)
         .file("native/flash_attn2_bf16.cu")
         .compile("mircuda_flash_attn2");
     Ok(())

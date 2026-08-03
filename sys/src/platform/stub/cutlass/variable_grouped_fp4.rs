@@ -53,6 +53,7 @@ impl PairedVariableGroupedFp4Plan {
         _indices: &DeviceBuffer,
         _rows: &DeviceBuffer,
         _offsets: &DeviceBuffer,
+        _scale_offsets: &DeviceBuffer,
         _left_c: &DeviceBuffer,
         _right_c: &DeviceBuffer,
     ) -> Result<()> {
@@ -73,6 +74,7 @@ impl VariableGroupedFp4Plan {
         _indices: &DeviceBuffer,
         _rows: &DeviceBuffer,
         _offsets: &DeviceBuffer,
+        _scale_offsets: &DeviceBuffer,
         _c: &DeviceBuffer,
     ) -> Result<()> {
         Err(unsupported())

@@ -32,7 +32,8 @@ __global__ void setup(
     Plan plan, const ElementType* a, const ElementSF* a_scales,
     const ElementType* b, const ElementSF* b_scales, const float* alphas,
     const unsigned int* indices, const unsigned int* rows,
-    const unsigned int* offsets, ElementC* c) {
+    const unsigned int* offsets, const unsigned int* scale_offsets,
+    ElementC* c) {
   const int group = blockIdx.x * blockDim.x + threadIdx.x;
   if (group >= plan.groups) return;
   const unsigned int matrix = indices[group];
@@ -40,10 +41,10 @@ __global__ void setup(
   const int row_count = min(static_cast<int>(rows[group]), plan.max_rows);
   const size_t offset = offsets[group];
   const int packed_k = plan.k / 2;
-  const int a_scale_stride = ((plan.max_rows + 127) / 128) * 128 *
-                             ((plan.k / 16 + 3) / 4) * 4;
   const int b_scale_stride = ((plan.n + 127) / 128) * 128 *
                              ((plan.k / 16 + 3) / 4) * 4;
+  const size_t a_scale_offset = static_cast<size_t>(scale_offsets[group] / 128) *
+                                (plan.k / 64) * 512;
   plan.rows[group] = row_count;
   plan.a_ptrs[group] =
       const_cast<ElementType*>(b) + matrix * plan.n * packed_k;
@@ -52,7 +53,7 @@ __global__ void setup(
   plan.a_scale_ptrs[group] =
       const_cast<ElementSF*>(b_scales) + matrix * b_scale_stride;
   plan.b_scale_ptrs[group] =
-      const_cast<ElementSF*>(a_scales) + group * a_scale_stride;
+      const_cast<ElementSF*>(a_scales) + a_scale_offset;
   plan.alpha_ptrs[group] = const_cast<float*>(alphas) + matrix;
   plan.a_layouts[group] = ScaleConfig::tile_atom_to_shape_SFA(
       cute::make_shape(plan.n, row_count, plan.k, 1));
@@ -193,7 +194,7 @@ extern "C" int mircuda_variable_grouped_fp4_execute(
     void* raw, void* stream, const void* a, const void* a_scales,
     const void* b, const void* b_scales, const void* alphas,
     const unsigned int* indices, const unsigned int* rows,
-    const unsigned int* offsets, void* c) {
+    const unsigned int* offsets, const unsigned int* scale_offsets, void* c) {
   using namespace mircuda::variable_grouped_fp4;
   if (raw == nullptr || stream == nullptr) return -1;
   auto* plan = static_cast<Plan*>(raw);
@@ -205,6 +206,7 @@ extern "C" int mircuda_variable_grouped_fp4_execute(
       static_cast<const ElementType*>(a), static_cast<const ElementSF*>(a_scales),
       static_cast<const ElementType*>(b), static_cast<const ElementSF*>(b_scales),
       static_cast<const float*>(alphas), indices, rows, offsets,
+      scale_offsets,
       static_cast<ElementC*>(c));
   int status = static_cast<int>(cudaPeekAtLastError());
   if (status != 0) return status;

@@ -55,19 +55,23 @@ fn variable_grouped_fp4_uses_device_rows_and_compact_offsets() -> mircuda::Resul
     let indices = copy_device(&context, &stream, &pool, &index_values)?;
     let rows = copy_device(&context, &stream, &pool, &rows_values)?;
     let offsets = copy_device(&context, &stream, &pool, &offset_values)?;
+    let scale_offsets = copy_device(&context, &stream, &pool, &[0_u32, 128, 128, 256])?;
     let mut output = copy_device(&context, &stream, &pool, &vec![bf16::ONE; capacity_rows * N])?;
     let spec = VariableGroupedFp4Spec::new(4, 3, 4, N, K, capacity_rows)?;
     let mut plan = VariableGroupedFp4Plan::new(&context, &stream, spec)?;
     plan.execute(
-        &stream, &a, &a_scales, &b, &b_scales, &alphas, &indices, &rows, &offsets, &mut output,
+        &stream, &a, &a_scales, &b, &b_scales, &alphas, &indices, &rows, &offsets, &scale_offsets,
+        &mut output,
     )?;
     let actual = read_device(&context, &stream, &output)?;
     assert_rows(&actual, &[64.0, 64.0, 64.0, 32.0, 32.0, 64.0]);
 
     let rows = copy_device(&context, &stream, &pool, &[0_u32, 1, 1, 4])?;
     let offsets = copy_device(&context, &stream, &pool, &[0_u32, 0, 1, 2])?;
+    let scale_offsets = copy_device(&context, &stream, &pool, &[0_u32, 0, 128, 256])?;
     plan.execute(
-        &stream, &a, &a_scales, &b, &b_scales, &alphas, &indices, &rows, &offsets, &mut output,
+        &stream, &a, &a_scales, &b, &b_scales, &alphas, &indices, &rows, &offsets, &scale_offsets,
+        &mut output,
     )?;
     drop(plan);
     let actual = read_device(&context, &stream, &output)?;
@@ -102,6 +106,7 @@ fn paired_variable_grouped_fp4_shares_only_device_metadata() -> mircuda::Result<
     let indices = copy_device(&context, &stream, &pool, &[1_u32, 0, 2, 1])?;
     let rows = copy_device(&context, &stream, &pool, &[3_u32, 0, 2, 1])?;
     let offsets = copy_device(&context, &stream, &pool, &[0_u32, 3, 3, 5])?;
+    let scale_offsets = copy_device(&context, &stream, &pool, &[0_u32, 128, 128, 256])?;
     let mut left = copy_device(&context, &stream, &pool, &vec![bf16::ONE; capacity * N])?;
     let mut right = copy_device(&context, &stream, &pool, &vec![bf16::ONE; capacity * N])?;
     let spec = VariableGroupedFp4Spec::new(4, 3, 4, N, K, capacity)?;
@@ -129,6 +134,7 @@ fn paired_variable_grouped_fp4_shares_only_device_metadata() -> mircuda::Result<
                 indices: &indices,
                 rows: &rows,
                 offsets: &offsets,
+                scale_offsets: &scale_offsets,
             },
         },
     )?;

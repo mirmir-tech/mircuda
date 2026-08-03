@@ -18,7 +18,7 @@ members = ["macros", "sys"]
 resolver = "3"
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/mirmir-tech/mircuda"
@@ -40,8 +40,8 @@ cutlass = ["mircuda-sys/cutlass"]
 [dependencies]
 blake3.workspace = true
 half.workspace = true
-mircuda-macros = { path = "macros", version = "0.3.0" }
-mircuda-sys = { path = "sys", version = "0.3.0" }
+mircuda-macros = { path = "macros", version = "0.3.1" }
+mircuda-sys = { path = "sys", version = "0.3.1" }
 parking_lot.workspace = true
 thiserror.workspace = true
 

@@ -23,7 +23,7 @@ impl FmhaBf16Spec {
             || kv_heads == 0
             || !query_heads.is_multiple_of(kv_heads)
             || head_dim != value_head_dim
-            || !matches!(head_dim, 64 | 128)
+            || !matches!(head_dim, 64 | 128 | 256)
         {
             return Err(Error::InvalidMatmulShape);
         }

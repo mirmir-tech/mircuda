@@ -11,7 +11,8 @@ __global__ void setup_pair(
     const ElementType* right_b, const ElementSF* right_b_scales,
     const float* right_alphas,
     const unsigned int* indices, const unsigned int* rows,
-    const unsigned int* offsets, ElementC* left_c, ElementC* right_c) {
+    const unsigned int* offsets, const unsigned int* scale_offsets,
+    ElementC* left_c, ElementC* right_c) {
   const int group = blockIdx.x * blockDim.x + threadIdx.x;
   if (group >= plan.groups) return;
   const int logical_groups = plan.groups / 2;
@@ -22,10 +23,11 @@ __global__ void setup_pair(
   const int row_count = min(static_cast<int>(rows[logical]), plan.max_rows);
   const size_t offset = offsets[logical];
   const int packed_k = plan.k / 2;
-  const int a_scale_stride = ((plan.max_rows + 127) / 128) * 128 *
-                             ((plan.k / 16 + 3) / 4) * 4;
   const int b_scale_stride = ((plan.n + 127) / 128) * 128 *
                              ((plan.k / 16 + 3) / 4) * 4;
+  const size_t a_scale_offset =
+      static_cast<size_t>(scale_offsets[logical] / 128) *
+      (plan.k / 64) * 512;
   const ElementType* a = right ? right_a : left_a;
   const ElementSF* a_scales = right ? right_a_scales : left_a_scales;
   const ElementType* b = right ? right_b : left_b;
@@ -39,7 +41,7 @@ __global__ void setup_pair(
   plan.a_scale_ptrs[group] =
       const_cast<ElementSF*>(b_scales) + matrix * b_scale_stride;
   plan.b_scale_ptrs[group] =
-      const_cast<ElementSF*>(a_scales) + logical * a_scale_stride;
+      const_cast<ElementSF*>(a_scales) + a_scale_offset;
   plan.alpha_ptrs[group] = const_cast<float*>(alphas) + matrix;
   plan.a_layouts[group] = ScaleConfig::tile_atom_to_shape_SFA(
       cute::make_shape(plan.n, row_count, plan.k, 1));
@@ -68,7 +70,8 @@ extern "C" int mircuda_paired_variable_grouped_fp4_execute(
     const void* right_a, const void* right_a_scales,
     const void* right_b, const void* right_b_scales, const void* right_alphas,
     const unsigned int* indices, const unsigned int* rows,
-    const unsigned int* offsets, void* left_c, void* right_c) {
+    const unsigned int* offsets, const unsigned int* scale_offsets,
+    void* left_c, void* right_c) {
   using namespace mircuda::variable_grouped_fp4;
   if (raw == nullptr || stream == nullptr) return -1;
   auto* plan = static_cast<Plan*>(raw);
@@ -86,7 +89,7 @@ extern "C" int mircuda_paired_variable_grouped_fp4_execute(
       static_cast<const ElementSF*>(right_a_scales),
       static_cast<const ElementType*>(right_b),
       static_cast<const ElementSF*>(right_b_scales),
-      static_cast<const float*>(right_alphas), indices, rows, offsets,
+      static_cast<const float*>(right_alphas), indices, rows, offsets, scale_offsets,
       static_cast<ElementC*>(left_c), static_cast<ElementC*>(right_c));
   const int status = static_cast<int>(cudaPeekAtLastError());
   return status == 0 ? execute_plan(plan, cuda_stream) : status;

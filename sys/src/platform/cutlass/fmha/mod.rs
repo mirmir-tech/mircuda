@@ -74,7 +74,7 @@ impl Context {
             || spec.kv_heads == 0
             || !spec.query_heads.is_multiple_of(spec.kv_heads)
             || spec.head_dim != spec.value_head_dim
-            || !matches!(spec.head_dim, 64 | 128)
+            || !matches!(spec.head_dim, 64 | 128 | 256)
         {
             return Err(Error::InvalidMatmulBuffer);
         }

@@ -26,6 +26,8 @@ pub struct VariableGroupedFp4Metadata<'a> {
     pub rows: &'a DeviceBuffer<u32>,
     /// Compact row offset for every logical group.
     pub offsets: &'a DeviceBuffer<u32>,
+    /// Compact 128-row-aligned scale offset for every logical group.
+    pub scale_offsets: &'a DeviceBuffer<u32>,
 }
 
 /// Two independent grouped products sharing only scheduling metadata.
@@ -84,6 +86,7 @@ impl PairedVariableGroupedFp4Plan {
             &launch.metadata.indices.native,
             &launch.metadata.rows.native,
             &launch.metadata.offsets.native,
+            &launch.metadata.scale_offsets.native,
             &launch.left.output.native,
             &launch.right.output.native,
         )?)

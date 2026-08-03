@@ -37,6 +37,7 @@ unsafe extern "C" {
         indices: *const u32,
         rows: *const u32,
         offsets: *const u32,
+        scale_offsets: *const u32,
         left_c: *mut c_void,
         right_c: *mut c_void,
     ) -> i32;
@@ -104,6 +105,7 @@ impl PairedVariableGroupedFp4Plan {
         indices: &DeviceBuffer,
         rows: &DeviceBuffer,
         offsets: &DeviceBuffer,
+        scale_offsets: &DeviceBuffer,
         left_c: &DeviceBuffer,
         right_c: &DeviceBuffer,
     ) -> Result<()> {
@@ -113,18 +115,19 @@ impl PairedVariableGroupedFp4Plan {
         }
         let buffers = [
             left_a, left_a_scales, left_b, left_b_scales, left_alphas, right_a, right_a_scales,
-            right_b, right_b_scales, right_alphas, indices, rows, offsets, left_c, right_c,
+            right_b, right_b_scales, right_alphas, indices, rows, offsets, scale_offsets, left_c,
+            right_c,
         ];
         for buffer in buffers {
             ensure_stream(buffer, stream)?;
         }
         validate_sizes(
             self.spec, left_a, left_a_scales, left_b, left_b_scales, left_alphas, indices, rows,
-            offsets, left_c,
+            offsets, scale_offsets, left_c,
         )?;
         validate_sizes(
             self.spec, right_a, right_a_scales, right_b, right_b_scales, right_alphas, indices,
-            rows, offsets, right_c,
+            rows, offsets, scale_offsets, right_c,
         )?;
         // SAFETY: validated buffers are stream-bound and outlive asynchronous execution.
         check(unsafe {
@@ -144,6 +147,7 @@ impl PairedVariableGroupedFp4Plan {
                 indices.pointer() as *const u32,
                 rows.pointer() as *const u32,
                 offsets.pointer() as *const u32,
+                scale_offsets.pointer() as *const u32,
                 left_c.pointer() as *mut c_void,
                 right_c.pointer() as *mut c_void,
             )

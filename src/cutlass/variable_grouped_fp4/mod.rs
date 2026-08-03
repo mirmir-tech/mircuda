@@ -128,8 +128,8 @@ impl VariableGroupedFp4Plan {
     /// Enqueues all products without reading row counts or offsets on the host.
     ///
     /// `rows[group]` must not exceed `max_rows`. `offsets[group]` must identify
-    /// a non-overlapping region of `capacity_rows`. Zero-row groups occupy no
-    /// compact rows. A scales use one fixed `max_rows`-sized region per group.
+    /// a non-overlapping region of `capacity_rows`. `scale_offsets[group]`
+    /// identifies its 128-row-aligned activation-scale region.
     #[allow(clippy::too_many_arguments)]
     pub fn execute(
         &mut self,
@@ -142,11 +142,21 @@ impl VariableGroupedFp4Plan {
         indices: &DeviceBuffer<u32>,
         rows: &DeviceBuffer<u32>,
         offsets: &DeviceBuffer<u32>,
+        scale_offsets: &DeviceBuffer<u32>,
         output: &mut DeviceBuffer<bf16>,
     ) -> Result<()> {
         Ok(self.native.execute(
-            &stream.native, &a.native, &a_scales.native, &b.native, &b_scales.native,
-            &alphas.native, &indices.native, &rows.native, &offsets.native, &output.native,
+            &stream.native,
+            &a.native,
+            &a_scales.native,
+            &b.native,
+            &b_scales.native,
+            &alphas.native,
+            &indices.native,
+            &rows.native,
+            &offsets.native,
+            &scale_offsets.native,
+            &output.native,
         )?)
     }
 }

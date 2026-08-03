@@ -104,7 +104,7 @@ int mircuda_variable_grouped_fp4_execute(
     void* plan, void* stream, const void* a, const void* a_scales,
     const void* b, const void* b_scales, const void* alphas,
     const unsigned int* indices, const unsigned int* rows,
-    const unsigned int* offsets, void* c);
+    const unsigned int* offsets, const unsigned int* scale_offsets, void* c);
 void mircuda_variable_grouped_fp4_destroy(void* plan);
 int mircuda_paired_variable_grouped_fp4_create(
     int groups, int matrices, int max_m, int n, int k, void* stream,
@@ -116,6 +116,7 @@ int mircuda_paired_variable_grouped_fp4_execute(
     const void* right_a, const void* right_a_scales,
     const void* right_b, const void* right_b_scales, const void* right_alphas,
     const unsigned int* indices, const unsigned int* rows,
-    const unsigned int* offsets, void* left_c, void* right_c);
+    const unsigned int* offsets, const unsigned int* scale_offsets,
+    void* left_c, void* right_c);
 void mircuda_paired_variable_grouped_fp4_destroy(void* plan);
 }

@@ -33,6 +33,7 @@ unsafe extern "C" {
         indices: *const u32,
         rows: *const u32,
         offsets: *const u32,
+        scale_offsets: *const u32,
         c: *mut c_void,
     ) -> i32;
     fn mircuda_variable_grouped_fp4_destroy(plan: *mut c_void);
@@ -104,16 +105,19 @@ impl VariableGroupedFp4Plan {
         indices: &DeviceBuffer,
         rows: &DeviceBuffer,
         offsets: &DeviceBuffer,
+        scale_offsets: &DeviceBuffer,
         c: &DeviceBuffer,
     ) -> Result<()> {
         self.stream.context().bind_to_thread()?;
         if !Arc::ptr_eq(&self.stream, &stream.inner) {
             return Err(Error::StreamMismatch);
         }
-        for buffer in [a, a_scales, b, b_scales, alphas, indices, rows, offsets, c] {
+        for buffer in [a, a_scales, b, b_scales, alphas, indices, rows, offsets, scale_offsets, c] {
             ensure_stream(buffer, stream)?;
         }
-        validate_sizes(self.spec, a, a_scales, b, b_scales, alphas, indices, rows, offsets, c)?;
+        validate_sizes(
+            self.spec, a, a_scales, b, b_scales, alphas, indices, rows, offsets, scale_offsets, c,
+        )?;
         // SAFETY: exact-size stream-bound buffers outlive the asynchronous operation.
         let status = unsafe {
             mircuda_variable_grouped_fp4_execute(
@@ -127,6 +131,7 @@ impl VariableGroupedFp4Plan {
                 indices.pointer() as *const u32,
                 rows.pointer() as *const u32,
                 offsets.pointer() as *const u32,
+                scale_offsets.pointer() as *const u32,
                 c.pointer() as *mut c_void,
             )
         };
@@ -153,11 +158,10 @@ pub(super) fn validate_sizes(
     indices: &DeviceBuffer,
     rows: &DeviceBuffer,
     offsets: &DeviceBuffer,
+    scale_offsets: &DeviceBuffer,
     c: &DeviceBuffer,
 ) -> Result<()> {
-    let a_scales_bytes = scale_bytes(spec.max_m, spec.k)?
-        .checked_mul(spec.groups)
-        .ok_or(Error::InvalidMatmulBuffer)?;
+    let a_scales_bytes = scale_bytes(scale_capacity_rows(spec)?, spec.k)?;
     let b_scales_bytes = scale_bytes(spec.n, spec.k)?
         .checked_mul(spec.matrices)
         .ok_or(Error::InvalidMatmulBuffer)?;
@@ -172,6 +176,7 @@ pub(super) fn validate_sizes(
         metadata_bytes,
         metadata_bytes,
         metadata_bytes,
+        metadata_bytes,
         product(product(spec.capacity_rows, spec.n)?, size_of::<u16>())?,
     ];
     let actual = [
@@ -183,6 +188,7 @@ pub(super) fn validate_sizes(
         indices.bytes(),
         rows.bytes(),
         offsets.bytes(),
+        scale_offsets.bytes(),
         c.bytes(),
     ];
     if expected == actual {
@@ -205,6 +211,15 @@ fn scale_bytes(rows: usize, k: usize) -> Result<usize> {
         .checked_mul(k.div_ceil(64))
         .and_then(|tiles| tiles.checked_mul(512))
         .ok_or(Error::InvalidMatmulBuffer)
+}
+
+fn scale_capacity_rows(spec: VariableGroupedFp4Spec) -> Result<usize> {
+    let rows = spec
+        .groups
+        .checked_mul(127)
+        .and_then(|padding| spec.capacity_rows.checked_add(padding))
+        .ok_or(Error::InvalidMatmulBuffer)?;
+    Ok(rows / 128 * 128)
 }
 
 pub(super) const fn check(status: i32) -> Result<()> {

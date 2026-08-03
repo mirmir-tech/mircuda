@@ -69,17 +69,38 @@ impl Stream {
     pub fn capture_with<Resources, CaptureError>(
         &self,
         mode: CaptureMode,
-        mut resources: Resources,
+        resources: Resources,
         operation: fn(&mut Resources) -> std::result::Result<(), CaptureError>,
     ) -> std::result::Result<Graph<Resources>, CaptureError>
     where
         CaptureError: From<crate::Error>,
     {
-        self.begin_capture(mode)?;
+        self.capture_or_recover(mode, resources, operation)
+            .map_err(|(error, _resources)| error)
+    }
+
+    /// Captures a sequence while returning its resources when capture fails.
+    pub fn capture_or_recover<Resources, CaptureError>(
+        &self,
+        mode: CaptureMode,
+        mut resources: Resources,
+        operation: fn(&mut Resources) -> std::result::Result<(), CaptureError>,
+    ) -> std::result::Result<Graph<Resources>, (CaptureError, Resources)>
+    where
+        CaptureError: From<crate::Error>,
+    {
+        if let Err(error) = self.begin_capture(mode) {
+            return Err((error.into(), resources));
+        }
         let operation_result = operation(&mut resources);
         let graph_result = self.end_capture();
-        operation_result?;
-        Ok(Graph { native: graph_result?, resources })
+        if let Err(error) = operation_result {
+            return Err((error, resources));
+        }
+        match graph_result {
+            Ok(native) => Ok(Graph { native, resources }),
+            Err(error) => Err((error.into(), resources)),
+        }
     }
 
     fn begin_capture(&self, mode: CaptureMode) -> Result<()> {
