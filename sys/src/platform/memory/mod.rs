@@ -1,7 +1,14 @@
 mod handle;
 mod transfer;
 
-use std::{ffi::c_void, ptr::NonNull, sync::Arc};
+use std::{
+    ffi::c_void,
+    ptr::NonNull,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 use cudarc::driver::{CudaContext, CudaEvent, CudaStream, result, sys};
 
@@ -86,6 +93,7 @@ impl MemoryPool {
             pointer,
             bytes,
             stream: stream.inner.clone(),
+            cross_stream: AtomicBool::new(false),
         })
     }
 }
@@ -95,6 +103,7 @@ pub struct DeviceBuffer {
     pointer: sys::CUdeviceptr,
     bytes: usize,
     stream: Arc<CudaStream>,
+    cross_stream: AtomicBool,
 }
 
 impl DeviceBuffer {
@@ -108,6 +117,8 @@ impl DeviceBuffer {
         super::compiler::KernelArgument::Pointer {
             value: self.pointer,
             stream: self.stream.cu_stream(),
+            context: Arc::as_ptr(self.stream.context()),
+            cross_stream: &raw const self.cross_stream,
         }
     }
 
@@ -120,6 +131,9 @@ impl DeviceBuffer {
 impl Drop for DeviceBuffer {
     fn drop(&mut self) {
         self.stream.context().record_err(self.stream.context().bind_to_thread());
+        if self.cross_stream.load(Ordering::Acquire) {
+            self.stream.context().record_err(self.stream.context().synchronize());
+        }
         // SAFETY: this is the sole owner and free is ordered on the allocation stream.
         self.stream
             .context()
@@ -181,8 +195,11 @@ impl Drop for PinnedBuffer {
 pub(super) fn ensure_stream(buffer: &DeviceBuffer, stream: &Stream) -> Result<()> {
     if Arc::ptr_eq(&buffer.stream, &stream.inner) {
         Ok(())
+    } else if Arc::ptr_eq(buffer.stream.context(), stream.inner.context()) {
+        buffer.cross_stream.store(true, Ordering::Release);
+        Ok(())
     } else {
-        Err(crate::Error::StreamMismatch)
+        Err(crate::Error::ContextMismatch)
     }
 }
 

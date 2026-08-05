@@ -33,15 +33,16 @@ syn = { version = "3", features = ["full"] }
 thiserror = "2"
 
 [features]
-default = ["cublaslt", "cutlass"]
+default = ["cublaslt", "cutlass", "marlin"]
 cublaslt = ["mircuda-sys/cublaslt"]
 cutlass = ["mircuda-sys/cutlass"]
+marlin = ["mircuda-sys/marlin"]
 
 [dependencies]
 blake3.workspace = true
 half.workspace = true
 mircuda-macros = { path = "macros", version = "0.3.1" }
-mircuda-sys = { path = "sys", version = "0.3.1" }
+mircuda-sys = { path = "sys", version = "0.3.1", default-features = false }
 parking_lot.workspace = true
 thiserror.workspace = true
 

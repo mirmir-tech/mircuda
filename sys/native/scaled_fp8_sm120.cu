@@ -4,6 +4,7 @@
 
 namespace mircuda::scaled_fp8 {
 using SmallTile = Shape<_16, _64, _128>;
+using WideTile = Shape<_16, _128, _64>;
 using LargeTile = Shape<_128, _128, _128>;
 using SmallSchedule = cutlass::gemm::KernelTmaWarpSpecializedPingpong;
 using LargeSchedule = cutlass::gemm::collective::KernelScheduleAuto;
@@ -68,6 +69,10 @@ int execute(const Plan& plan, const void* input, const void* weight,
 template <typename Scale, bool WithBias, bool TensorScale>
 int workspace_shape(const Plan& plan, size_t* bytes) {
   if (plan.m <= 16) {
+    if (plan.tile == 1) {
+      return workspace<Scale, WithBias, TensorScale, WideTile, SmallSchedule,
+                       Shape<_16, _64>>(plan, bytes);
+    }
     return workspace<Scale, WithBias, TensorScale, SmallTile, SmallSchedule,
                      Shape<_16, _32>>(plan, bytes);
   }
@@ -81,6 +86,11 @@ int execute_shape(const Plan& plan, const void* input, const void* weight,
                   const float* input_scales, const void* weight_scales,
                   const void* bias, void* output) {
   if (plan.m <= 16) {
+    if (plan.tile == 1) {
+      return execute<Scale, WithBias, TensorScale, WideTile, SmallSchedule,
+                     Shape<_16, _64>>(plan, input, weight, input_scales,
+                                      weight_scales, bias, output);
+    }
     return execute<Scale, WithBias, TensorScale, SmallTile, SmallSchedule,
                    Shape<_16, _32>>(plan, input, weight, input_scales,
                                     weight_scales, bias, output);
@@ -109,15 +119,16 @@ int execute_scale(const Plan& plan, const void* input, const void* weight,
 }  // namespace mircuda::scaled_fp8
 
 extern "C" int mircuda_scaled_fp8_create(
-    int m, int n, int k, int scale_type, int weight_scale_type, int has_bias, void* stream,
-    void** output) {
+    int m, int n, int k, int scale_type, int weight_scale_type, int has_bias,
+    int tile, void* stream, void** output) {
   using namespace mircuda::scaled_fp8;
   if (m <= 0 || n <= 0 || k <= 0 || n % 16 != 0 || k % 16 != 0 ||
       (scale_type != 0 && scale_type != 1) ||
-      (weight_scale_type != 0 && weight_scale_type != 1) || stream == nullptr ||
+      (weight_scale_type != 0 && weight_scale_type != 1) ||
+      (tile != 0 && tile != 1) || stream == nullptr ||
       output == nullptr) return -1;
   auto* plan = new (std::nothrow) Plan{
-      m, n, k, scale_type, weight_scale_type == 0, has_bias != 0,
+      m, n, k, scale_type, weight_scale_type == 0, has_bias != 0, tile,
       static_cast<cudaStream_t>(stream),
       nullptr, 0};
   if (plan == nullptr) return -2;

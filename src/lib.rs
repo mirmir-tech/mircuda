@@ -11,6 +11,8 @@ mod error;
 mod event;
 mod graph;
 mod launch;
+#[cfg(feature = "marlin")]
+mod marlin;
 mod memory;
 mod mxfp8;
 mod profile;
@@ -26,9 +28,9 @@ pub use cutlass::{
     DenseMatmulElement, DenseMatmulOutput, DenseMatmulPlan, DenseMatmulSpec, DenseVectorPlan,
     DenseVectorSpec, FmhaBf16Plan, FmhaBf16Spec, IndexedGroupedFp4Plan, IndexedGroupedFp4Spec,
     PairedVariableGroupedFp4Launch, PairedVariableGroupedFp4Plan, ScaledFp8Plan, ScaledFp8Scale,
-    ScaledFp8Spec, ScaledFp8WeightScale, VariableGroupedBf16Plan, VariableGroupedBf16Spec,
-    VariableGroupedFp4Metadata, VariableGroupedFp4Operands, VariableGroupedFp4Plan,
-    VariableGroupedFp4Spec,
+    ScaledFp8Spec, ScaledFp8Tile, ScaledFp8WeightScale, VariableGroupedBf16Plan,
+    VariableGroupedBf16Spec, VariableGroupedFp4Metadata, VariableGroupedFp4Operands,
+    VariableGroupedFp4Plan, VariableGroupedFp4Spec,
 };
 pub use driver::{Context, Device, DeviceInfo, Driver, Stream};
 pub use error::{Error, Result};
@@ -37,6 +39,11 @@ pub use graph::{CaptureMode, Graph, KernelNode};
 pub use half::{bf16, f16};
 pub use launch::{
     KernelArguments, KernelScalar, KernelSignature, LaunchConfig, ScalarValue, TypedKernel,
+};
+#[cfg(feature = "marlin")]
+pub use marlin::{
+    MarlinNvFp4DenseOperands, MarlinNvFp4MoeOperands, MarlinNvFp4MoeSpec, MarlinNvFp4RepackSpec,
+    MarlinNvFp4ThreadConfig,
 };
 pub use memory::{DeviceBuffer, DeviceElement, MemoryPool, MemoryPoolStats, PinnedBuffer};
 pub use mircuda_macros::{cuda_export, cuda_kernel};
@@ -48,7 +55,10 @@ pub use mxfp8::{
 pub use mxfp8::{MxFp8TensorCore, MxFp8TensorCoreScratch};
 pub use profile::ProfilerRange;
 #[cfg(feature = "cublaslt")]
-pub use vendor::{CublasBf16Plan, CublasBf16Spec, CublasLtBf16Plan, CublasLtBf16Spec};
+pub use vendor::{
+    CublasBf16Plan, CublasBf16Spec, CublasLtBf16Plan, CublasLtBf16Spec, CublasLtFp8Plan,
+    CublasLtFp8Spec,
+};
 
 /// Version of the linked CUTLASS AOT backend encoded as `major * 10000 + minor * 100 + patch`.
 #[cfg(all(target_os = "linux", feature = "cutlass"))]

@@ -14,6 +14,12 @@ pub enum ScaledFp8WeightScaleType {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ScaledFp8Tile {
+    M16N64K128,
+    M16N128K64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ScaledFp8Spec {
     pub m: usize,
     pub n: usize,
@@ -21,6 +27,7 @@ pub struct ScaledFp8Spec {
     pub scale_type: ScaledFp8ScaleType,
     pub weight_scale_type: ScaledFp8WeightScaleType,
     pub has_bias: bool,
+    pub tile: ScaledFp8Tile,
 }
 
 #[derive(Debug)]

@@ -10,7 +10,7 @@ pub use platform::{
     BlockScaledMxFp8Plan, BlockScaledMxFp8Spec, BlockwiseFp8VectorPlan, BlockwiseFp8VectorSpec,
     DenseMatmulDataType, DenseMatmulPlan, DenseMatmulSpec, DenseVectorPlan, DenseVectorSpec,
     FmhaBf16Plan, FmhaBf16Spec, IndexedGroupedFp4Plan, IndexedGroupedFp4Spec,
-    PairedVariableGroupedFp4Plan, ScaledFp8Plan, ScaledFp8ScaleType, ScaledFp8Spec,
+    PairedVariableGroupedFp4Plan, ScaledFp8Plan, ScaledFp8ScaleType, ScaledFp8Spec, ScaledFp8Tile,
     ScaledFp8WeightScaleType, VariableGroupedBf16Plan, VariableGroupedBf16Spec,
     VariableGroupedFp4Plan, VariableGroupedFp4Spec,
 };
@@ -20,7 +20,12 @@ pub use platform::{
     PinnedBuffer, ProfilerRange, Stream, compiler_version,
 };
 #[cfg(feature = "cublaslt")]
-pub use platform::{CublasBf16Plan, CublasBf16Spec, CublasLtBf16Plan, CublasLtBf16Spec};
+pub use platform::{
+    CublasBf16Plan, CublasBf16Spec, CublasLtBf16Plan, CublasLtBf16Spec, CublasLtFp8Plan,
+    CublasLtFp8Spec,
+};
+#[cfg(feature = "marlin")]
+pub use platform::{MarlinNvFp4MoeSpec, MarlinNvFp4RepackSpec, MarlinNvFp4ThreadConfig};
 
 #[cfg(all(target_os = "linux", feature = "cutlass"))]
 unsafe extern "C" {

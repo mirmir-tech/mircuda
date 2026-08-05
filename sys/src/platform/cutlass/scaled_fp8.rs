@@ -16,6 +16,7 @@ unsafe extern "C" {
         scale_type: i32,
         weight_scale_type: i32,
         has_bias: i32,
+        tile: i32,
         stream: *mut c_void,
         output: *mut *mut c_void,
     ) -> i32;
@@ -46,6 +47,12 @@ pub enum ScaledFp8WeightScaleType {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ScaledFp8Tile {
+    M16N64K128,
+    M16N128K64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ScaledFp8Spec {
     pub m: usize,
     pub n: usize,
@@ -53,6 +60,7 @@ pub struct ScaledFp8Spec {
     pub scale_type: ScaledFp8ScaleType,
     pub weight_scale_type: ScaledFp8WeightScaleType,
     pub has_bias: bool,
+    pub tile: ScaledFp8Tile,
 }
 
 #[derive(Debug)]
@@ -81,6 +89,7 @@ impl Context {
         let scale_type = i32::from(spec.scale_type == ScaledFp8ScaleType::Bf16);
         let weight_scale_type =
             i32::from(spec.weight_scale_type == ScaledFp8WeightScaleType::OutputChannel);
+        let tile = i32::from(spec.tile == ScaledFp8Tile::M16N128K64);
         // SAFETY: the returned pointer is checked and uniquely owned.
         check(unsafe {
             mircuda_scaled_fp8_create(
@@ -90,6 +99,7 @@ impl Context {
                 scale_type,
                 weight_scale_type,
                 i32::from(spec.has_bias),
+                tile,
                 stream.inner.cu_stream().cast(),
                 &raw mut raw,
             )

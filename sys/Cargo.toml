@@ -8,9 +8,10 @@ repository.workspace = true
 build = "build.rs"
 
 [features]
-default = ["cublaslt", "cutlass"]
+default = ["cublaslt", "cutlass", "marlin"]
 cublaslt = []
 cutlass = []
+marlin = []
 
 [build-dependencies]
 cc = "1"

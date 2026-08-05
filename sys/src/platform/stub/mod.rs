@@ -2,15 +2,22 @@ use crate::{Error, Result};
 
 mod compiler;
 mod graph;
+#[cfg(feature = "marlin")]
+mod marlin;
 mod memory;
 mod profile;
 #[cfg(feature = "cublaslt")]
 mod vendor;
 pub use compiler::{CompileSpec, CompiledPtx, compiler_version};
 pub use graph::{CaptureMode, Graph, KernelNode};
+#[cfg(feature = "marlin")]
+pub use marlin::{MarlinNvFp4MoeSpec, MarlinNvFp4RepackSpec, MarlinNvFp4ThreadConfig};
 pub use profile::ProfilerRange;
 #[cfg(feature = "cublaslt")]
-pub use vendor::{CublasBf16Plan, CublasBf16Spec, CublasLtBf16Plan, CublasLtBf16Spec};
+pub use vendor::{
+    CublasBf16Plan, CublasBf16Spec, CublasLtBf16Plan, CublasLtBf16Spec, CublasLtFp8Plan,
+    CublasLtFp8Spec,
+};
 
 #[cfg(feature = "cutlass")]
 mod cutlass;
@@ -20,7 +27,7 @@ pub use cutlass::{
     BlockScaledMxFp8Plan, BlockScaledMxFp8Spec, BlockwiseFp8VectorPlan, BlockwiseFp8VectorSpec,
     DenseMatmulDataType, DenseMatmulPlan, DenseMatmulSpec, DenseVectorPlan, DenseVectorSpec,
     FmhaBf16Plan, FmhaBf16Spec, IndexedGroupedFp4Plan, IndexedGroupedFp4Spec,
-    PairedVariableGroupedFp4Plan, ScaledFp8Plan, ScaledFp8ScaleType, ScaledFp8Spec,
+    PairedVariableGroupedFp4Plan, ScaledFp8Plan, ScaledFp8ScaleType, ScaledFp8Spec, ScaledFp8Tile,
     ScaledFp8WeightScaleType, VariableGroupedBf16Plan, VariableGroupedBf16Spec,
     VariableGroupedFp4Plan, VariableGroupedFp4Spec,
 };

@@ -21,6 +21,16 @@ pub struct CublasLtBf16Spec {
 #[derive(Debug)]
 pub struct CublasLtBf16Plan;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CublasLtFp8Spec {
+    pub m: usize,
+    pub n: usize,
+    pub k: usize,
+}
+
+#[derive(Debug)]
+pub struct CublasLtFp8Plan;
+
 impl Context {
     pub const fn create_cublas_bf16_plan(
         &self,
@@ -35,6 +45,14 @@ impl Context {
         _stream: &Stream,
         _spec: CublasLtBf16Spec,
     ) -> Result<CublasLtBf16Plan> {
+        Err(unsupported())
+    }
+
+    pub const fn create_cublaslt_fp8_plan(
+        &self,
+        _stream: &Stream,
+        _spec: CublasLtFp8Spec,
+    ) -> Result<CublasLtFp8Plan> {
         Err(unsupported())
     }
 }
@@ -69,6 +87,21 @@ impl CublasLtBf16Plan {
         _c: &DeviceBuffer,
         _alpha: f32,
         _beta: f32,
+    ) -> Result<()> {
+        Err(unsupported())
+    }
+}
+
+impl CublasLtFp8Plan {
+    #[allow(clippy::too_many_arguments)]
+    pub const fn execute(
+        &mut self,
+        _stream: &Stream,
+        _a: &DeviceBuffer,
+        _b: &DeviceBuffer,
+        _a_scale: &DeviceBuffer,
+        _b_scale: &DeviceBuffer,
+        _c: &DeviceBuffer,
     ) -> Result<()> {
         Err(unsupported())
     }

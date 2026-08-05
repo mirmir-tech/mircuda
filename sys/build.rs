@@ -4,6 +4,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo::rerun-if-env-changed=MIRCUDA_CUTLASS_DIR");
     println!("cargo::rerun-if-env-changed=MIRCUDA_FLASH_ATTN_DIR");
     println!("cargo::rerun-if-env-changed=MIRCUDA_CUDA_ARCH");
+    println!("cargo::rerun-if-env-changed=MIRCUDA_MARLIN_CUDA_ARCH");
     println!("cargo::rerun-if-env-changed=CUDA_HOME");
     rerun_sources();
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("linux") {
@@ -13,6 +14,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         env::var_os("CUDA_HOME").map_or_else(|| PathBuf::from("/usr/local/cuda"), PathBuf::from);
     let arch = cuda_arch()?;
     let gencode = format!("-gencode=arch=compute_{arch},code=sm_{arch}");
+    let marlin_arch = env::var("MIRCUDA_MARLIN_CUDA_ARCH").ok();
     let configure = |build: &mut cc::Build| {
         build
             .cuda(true)
@@ -34,9 +36,23 @@ fn main() -> Result<(), Box<dyn Error>> {
         vendor
             .file("native/cublas_dense.cu")
             .file("native/cublaslt_dense.cu")
+            .file("native/cublaslt_fp8.cu")
             .compile("mircuda_vendor_dense");
         println!("cargo::rustc-link-lib=dylib=cublas");
         println!("cargo::rustc-link-lib=dylib=cublasLt");
+    }
+    if env::var_os("CARGO_FEATURE_MARLIN").is_some() {
+        let mut marlin = cc::Build::new();
+        configure(&mut marlin);
+        if let Some(arch) = &marlin_arch {
+            marlin.flag(&format!("-gencode=arch=compute_{arch},code=sm_{arch}"));
+        }
+        marlin
+            .include("native/marlin/vendor")
+            .file("native/marlin/repack.cu")
+            .file("native/marlin/dense_kernel.cu")
+            .file("native/marlin/moe_kernel.cu")
+            .compile("mircuda_marlin");
     }
     if env::var_os("CARGO_FEATURE_CUTLASS").is_none() {
         return Ok(());
@@ -50,6 +66,7 @@ fn rerun_sources() {
         "cutlass_probe.cu",
         "cublas_dense.cu",
         "cublaslt_dense.cu",
+        "cublaslt_fp8.cu",
         "dense_sm120.cu",
         "dense_sm120.cuh",
         "dense_vector_sm120.cu",
@@ -68,6 +85,16 @@ fn rerun_sources() {
         "variable_grouped_fp4_sm120.cuh",
         "variable_grouped_bf16_sm120.cu",
         "variable_grouped_bf16_sm120.cuh",
+        "marlin/repack.cu",
+        "marlin/dense_kernel.cu",
+        "marlin/moe_kernel.cu",
+        "marlin/vendor/dequant.h",
+        "marlin/vendor/marlin.cuh",
+        "marlin/vendor/marlin_dtypes.cuh",
+        "marlin/vendor/marlin_mma.h",
+        "marlin/vendor/moe_template.h",
+        "marlin/vendor/dense_template.h",
+        "marlin/vendor/scalar_type.hpp",
     ] {
         println!("cargo::rerun-if-changed=native/{source}");
     }
@@ -146,9 +173,15 @@ fn compile_flash_attention(configure: &impl Fn(&mut cc::Build)) -> Result<(), Bo
     let specialization64 = source.join("flash_fwd_split_hdim64_bf16_causal_sm80.cu");
     let specialization128 = source.join("flash_fwd_split_hdim128_bf16_causal_sm80.cu");
     let specialization256 = source.join("flash_fwd_split_hdim256_bf16_causal_sm80.cu");
+    let decode64 = source.join("flash_fwd_split_hdim64_bf16_sm80.cu");
+    let decode128 = source.join("flash_fwd_split_hdim128_bf16_sm80.cu");
+    let decode256 = source.join("flash_fwd_split_hdim256_bf16_sm80.cu");
     if !specialization64.is_file()
         || !specialization128.is_file()
         || !specialization256.is_file()
+        || !decode64.is_file()
+        || !decode128.is_file()
+        || !decode256.is_file()
         || !cutlass.join("cutlass/cutlass.h").is_file()
     {
         return Err(
@@ -172,6 +205,9 @@ fn compile_flash_attention(configure: &impl Fn(&mut cc::Build)) -> Result<(), Bo
         .file(specialization64)
         .file(specialization128)
         .file(specialization256)
+        .file(decode64)
+        .file(decode128)
+        .file(decode256)
         .file("native/flash_attn2_bf16.cu")
         .compile("mircuda_flash_attn2");
     Ok(())

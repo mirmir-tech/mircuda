@@ -102,6 +102,7 @@ struct Plan {
   int scale_type;
   bool tensor_scale;
   bool has_bias;
+  int tile;
   cudaStream_t stream;
   void* workspace;
   size_t workspace_bytes;

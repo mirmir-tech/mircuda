@@ -19,6 +19,15 @@ pub enum ScaledFp8WeightScale {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+/// Decode tile geometry for SM120 scaled FP8 matrix multiplication.
+pub enum ScaledFp8Tile {
+    /// 16 by 64 output tile with a 128-wide reduction tile.
+    M16N64K128,
+    /// 16 by 128 output tile with a 64-wide reduction tile.
+    M16N128K64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 /// Fixed geometry for E4M3 by E4M3 scaled matrix multiplication.
 pub struct ScaledFp8Spec {
     /// Input row count.
@@ -33,6 +42,8 @@ pub struct ScaledFp8Spec {
     pub weight_scale: ScaledFp8WeightScale,
     /// Whether a BF16 output bias is fused.
     pub has_bias: bool,
+    /// Decode tile selected by the caller or its autotuner.
+    pub tile: ScaledFp8Tile,
 }
 
 impl ScaledFp8Spec {
@@ -62,7 +73,15 @@ impl ScaledFp8Spec {
             scale,
             weight_scale,
             has_bias,
+            tile: ScaledFp8Tile::M16N64K128,
         })
+    }
+
+    /// Overrides the default decode tile for this plan.
+    #[must_use]
+    pub const fn with_tile(mut self, tile: ScaledFp8Tile) -> Self {
+        self.tile = tile;
+        self
     }
 
     const fn native(self) -> mircuda_sys::ScaledFp8Spec {
@@ -81,6 +100,10 @@ impl ScaledFp8Spec {
                 },
             },
             has_bias: self.has_bias,
+            tile: match self.tile {
+                ScaledFp8Tile::M16N64K128 => mircuda_sys::ScaledFp8Tile::M16N64K128,
+                ScaledFp8Tile::M16N128K64 => mircuda_sys::ScaledFp8Tile::M16N128K64,
+            },
         }
     }
 }

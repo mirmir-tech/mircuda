@@ -13,6 +13,7 @@ int launch_typed(
     const void* query, const void* key_pages, const void* value_pages,
     void* output, const int* query_starts, const int* token_counts,
     const int* context_starts, const int* block_table, float* softmax_lse,
+    float* output_accum, float* softmax_lse_accum, int num_splits,
     int total_query_tokens,
     int max_query_tokens, int max_context_tokens, int batch_size,
     int max_blocks, int page_block_size, int query_heads, int kv_heads,
@@ -23,6 +24,8 @@ int launch_typed(
   params.v_ptr = const_cast<void*>(value_pages);
   params.o_ptr = output;
   params.softmax_lse_ptr = softmax_lse;
+  params.oaccum_ptr = output_accum;
+  params.softmax_lseaccum_ptr = softmax_lse_accum;
   params.cu_seqlens_q = const_cast<int*>(query_starts);
   params.cu_seqlens_k = const_cast<int*>(context_starts);
   params.seqused_k = const_cast<int*>(token_counts);
@@ -59,12 +62,18 @@ int launch_typed(
   params.window_size_left = -1;
   params.window_size_right = 0;
   params.is_bf16 = true;
-  params.is_causal = true;
+  const bool is_decode = max_query_tokens == 1;
+  params.is_causal = !is_decode;
   params.is_seqlens_k_cumulative = true;
   params.unpadded_lse = true;
-  params.num_splits = 1;
-  flash::run_mha_fwd_splitkv_dispatch<cutlass::bfloat16_t, HeadDim, true>(
-      params, stream);
+  params.num_splits = num_splits;
+  if (is_decode) {
+    flash::run_mha_fwd_splitkv_dispatch<cutlass::bfloat16_t, HeadDim, false>(
+        params, stream);
+  } else {
+    flash::run_mha_fwd_splitkv_dispatch<cutlass::bfloat16_t, HeadDim, true>(
+        params, stream);
+  }
   return static_cast<int>(cudaPeekAtLastError());
 }
 
@@ -72,36 +81,41 @@ int launch(
     const void* query, const void* key_pages, const void* value_pages,
     void* output, const int* query_starts, const int* token_counts,
     const int* context_starts, const int* block_table, float* softmax_lse,
+    float* output_accum, float* softmax_lse_accum, int num_splits,
     int total_query_tokens, int max_query_tokens, int max_context_tokens,
     int batch_size, int max_blocks, int page_block_size, int query_heads,
     int kv_heads, int head_dim, float scale, cudaStream_t stream) {
   if (head_dim == 64) {
     return launch_typed<64>(
         query, key_pages, value_pages, output, query_starts, token_counts,
-        context_starts, block_table, softmax_lse, total_query_tokens,
+        context_starts, block_table, softmax_lse, output_accum,
+        softmax_lse_accum, num_splits, total_query_tokens,
         max_query_tokens, max_context_tokens, batch_size, max_blocks,
         page_block_size, query_heads, kv_heads, scale, stream);
   }
   if (head_dim == 128) {
     return launch_typed<128>(
         query, key_pages, value_pages, output, query_starts, token_counts,
-        context_starts, block_table, softmax_lse, total_query_tokens,
+        context_starts, block_table, softmax_lse, output_accum,
+        softmax_lse_accum, num_splits, total_query_tokens,
         max_query_tokens, max_context_tokens, batch_size, max_blocks,
         page_block_size, query_heads, kv_heads, scale, stream);
   }
   return launch_typed<256>(
       query, key_pages, value_pages, output, query_starts, token_counts,
-      context_starts, block_table, softmax_lse, total_query_tokens,
+      context_starts, block_table, softmax_lse, output_accum,
+      softmax_lse_accum, num_splits, total_query_tokens,
       max_query_tokens, max_context_tokens, batch_size, max_blocks,
       page_block_size, query_heads, kv_heads, scale, stream);
 }
 
 }  // namespace mircuda::flash_attn2
 
-extern "C" int mircuda_flash_attn2_paged_bf16_execute(
+extern "C" int mircuda_flash_attn2_paged_bf16_execute_split(
     const void* query, const void* key_pages, const void* value_pages,
     void* output, const int* query_starts, const int* token_counts,
     const int* context_starts, const int* block_table, float* softmax_lse,
+    float* output_accum, float* softmax_lse_accum, int num_splits,
     int total_query_tokens,
     int max_query_tokens, int max_context_tokens, int batch_size,
     int max_blocks, int page_block_size, int query_heads, int kv_heads,
@@ -110,6 +124,8 @@ extern "C" int mircuda_flash_attn2_paged_bf16_execute(
       output == nullptr || query_starts == nullptr || token_counts == nullptr ||
       context_starts == nullptr || block_table == nullptr ||
       softmax_lse == nullptr || stream == nullptr ||
+      num_splits <= 0 ||
+      (num_splits > 1 && (output_accum == nullptr || softmax_lse_accum == nullptr)) ||
       total_query_tokens <= 0 || max_query_tokens <= 0 ||
       max_context_tokens < max_query_tokens || batch_size <= 0 ||
       max_blocks <= 0 || page_block_size <= 0 ||
@@ -120,8 +136,24 @@ extern "C" int mircuda_flash_attn2_paged_bf16_execute(
   }
   return mircuda::flash_attn2::launch(
       query, key_pages, value_pages, output, query_starts, token_counts,
-      context_starts, block_table, softmax_lse, total_query_tokens,
+      context_starts, block_table, softmax_lse, output_accum,
+      softmax_lse_accum, num_splits, total_query_tokens,
       max_query_tokens,
       max_context_tokens, batch_size, max_blocks, page_block_size, query_heads,
       kv_heads, head_dim, scale, static_cast<cudaStream_t>(stream));
+}
+
+extern "C" int mircuda_flash_attn2_paged_bf16_execute(
+    const void* query, const void* key_pages, const void* value_pages,
+    void* output, const int* query_starts, const int* token_counts,
+    const int* context_starts, const int* block_table, float* softmax_lse,
+    int total_query_tokens, int max_query_tokens, int max_context_tokens,
+    int batch_size, int max_blocks, int page_block_size, int query_heads,
+    int kv_heads, int head_dim, float scale, void* stream) {
+  return mircuda_flash_attn2_paged_bf16_execute_split(
+      query, key_pages, value_pages, output, query_starts, token_counts,
+      context_starts, block_table, softmax_lse, nullptr, nullptr, 1,
+      total_query_tokens, max_query_tokens, max_context_tokens, batch_size,
+      max_blocks, page_block_size, query_heads, kv_heads, head_dim, scale,
+      stream);
 }

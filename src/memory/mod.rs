@@ -50,10 +50,11 @@ pub struct MemoryPoolStats {
     pub used: u64,
 }
 
-/// Shared handle to one device allocation bound to its allocation stream.
+/// Shared handle to one context-owned device allocation.
 ///
 /// Cloning this handle retains the same CUDA allocation. It does not allocate,
-/// transfer, or copy device memory.
+/// transfer, or copy device memory. Same-context cross-stream launches remain
+/// explicitly ordered by the caller and are tracked for safe destruction.
 #[derive(Clone, Debug)]
 pub struct DeviceBuffer<T: DeviceElement> {
     pub(crate) native: Arc<mircuda_sys::DeviceBuffer>,

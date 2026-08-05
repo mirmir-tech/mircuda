@@ -129,10 +129,23 @@ impl Kernel {
             return Err(crate::Error::ContextMismatch);
         }
         let stream_handle = stream.inner.cu_stream();
-        if arguments.iter().any(|argument| {
-            matches!(argument, KernelArgument::Pointer { stream, .. } if *stream != stream_handle)
-        }) {
-            return Err(crate::Error::StreamMismatch);
+        let context = Arc::as_ptr(stream.inner.context());
+        for argument in arguments.iter() {
+            if let KernelArgument::Pointer {
+                stream: allocation_stream,
+                context: allocation_context,
+                cross_stream,
+                ..
+            } = argument
+            {
+                if *allocation_context != context {
+                    return Err(crate::Error::ContextMismatch);
+                }
+                if *allocation_stream != stream_handle {
+                    // SAFETY: generated KernelArguments retain the DeviceBuffer borrow.
+                    unsafe { &**cross_stream }.store(true, std::sync::atomic::Ordering::Release);
+                }
+            }
         }
         self.module.inner.context.bind_to_thread()?;
         Ok(arguments.iter_mut().map(KernelArgument::as_mut_pointer).collect())
@@ -172,6 +185,8 @@ pub enum KernelArgument {
     Pointer {
         value: sys::CUdeviceptr,
         stream: sys::CUstream,
+        context: *const CudaContext,
+        cross_stream: *const std::sync::atomic::AtomicBool,
     },
     U8(u8),
     I8(i8),

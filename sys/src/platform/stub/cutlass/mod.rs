@@ -56,7 +56,9 @@ pub use fp4::{
 };
 pub use fp8_vector::{BlockwiseFp8VectorPlan, BlockwiseFp8VectorSpec};
 pub use mxfp8::{BlockScaledMxFp8Plan, BlockScaledMxFp8Spec};
-pub use scaled_fp8::{ScaledFp8Plan, ScaledFp8ScaleType, ScaledFp8Spec, ScaledFp8WeightScaleType};
+pub use scaled_fp8::{
+    ScaledFp8Plan, ScaledFp8ScaleType, ScaledFp8Spec, ScaledFp8Tile, ScaledFp8WeightScaleType,
+};
 pub use variable_grouped_bf16::{VariableGroupedBf16Plan, VariableGroupedBf16Spec};
 mod mxfp8;
 mod variable_grouped_fp4;
