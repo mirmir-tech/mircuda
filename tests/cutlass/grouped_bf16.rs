@@ -37,7 +37,7 @@ fn variable_grouped_bf16_uses_compact_device_routing() -> mircuda::Result<()> {
 
 fn assert_rows(actual: &[bf16], expected_rows: &[f32]) {
     let (rows, remainder) = actual.as_chunks::<N>();
-    assert!(remainder.is_empty());
+    assert_eq!(remainder, []);
     for (row, values) in rows.iter().enumerate() {
         let expected = bf16::from_f32(expected_rows[row]);
         assert!(values.iter().all(|value| *value == expected), "row {row}");

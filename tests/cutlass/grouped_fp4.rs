@@ -148,7 +148,7 @@ fn paired_variable_grouped_fp4_shares_only_device_metadata() -> mircuda::Result<
 
 fn assert_rows(actual: &[bf16], expected_rows: &[f32]) {
     let (rows, remainder) = actual.as_chunks::<N>();
-    assert!(remainder.is_empty());
+    assert_eq!(remainder, []);
     for (row, values) in rows.iter().enumerate() {
         let expected = bf16::from_f32(expected_rows[row]);
         assert!(values.iter().all(|value| *value == expected), "row {row}");

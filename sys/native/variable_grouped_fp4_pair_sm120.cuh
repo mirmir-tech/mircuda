@@ -15,9 +15,8 @@ __global__ void setup_pair(
     ElementC* left_c, ElementC* right_c) {
   const int group = blockIdx.x * blockDim.x + threadIdx.x;
   if (group >= plan.groups) return;
-  const int logical_groups = plan.groups / 2;
-  const int logical = group % logical_groups;
-  const bool right = group >= logical_groups;
+  const int logical = group / 2;
+  const bool right = group % 2 != 0;
   const unsigned int matrix = indices[logical];
   if (matrix >= static_cast<unsigned int>(plan.matrices)) return;
   const int row_count = min(static_cast<int>(rows[logical]), plan.max_rows);

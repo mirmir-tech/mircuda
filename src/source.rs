@@ -7,6 +7,44 @@ pub struct KernelSource {
     body: KernelSourceBody,
 }
 
+/// Precompiled PTX embedded in the binary for one exact CUDA compute capability.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PtxSource {
+    name: &'static str,
+    body: &'static str,
+    compute_capability: (i32, i32),
+}
+
+impl PtxSource {
+    /// Declares an embedded PTX module and the exact device capability it targets.
+    #[must_use]
+    pub const fn embedded(
+        name: &'static str,
+        body: &'static str,
+        compute_capability: (i32, i32),
+    ) -> Self {
+        Self { name, body, compute_capability }
+    }
+
+    /// Diagnostic module name.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        self.name
+    }
+
+    /// PTX text passed directly to the CUDA driver.
+    #[must_use]
+    pub const fn body(self) -> &'static str {
+        self.body
+    }
+
+    /// Exact device compute capability required by the generated module.
+    #[must_use]
+    pub const fn compute_capability(self) -> (i32, i32) {
+        self.compute_capability
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum KernelSourceBody {
     Single(&'static str),

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use super::CompileOptions;
 
 const CACHE_SCHEMA: &[u8] = b"mircuda-ptx-v1";
+const PRECOMPILED_SCHEMA: &[u8] = b"mircuda-precompiled-ptx-v1";
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(super) struct CompileKey(pub(super) [u8; 32]);
@@ -34,6 +35,16 @@ impl CompileKey {
             hasher.update(&[0]);
             hasher.update(option.as_bytes());
         }
+        Self(*hasher.finalize().as_bytes())
+    }
+
+    pub(super) fn precompiled(source_name: &str, source: &str, architecture: (i32, i32)) -> Self {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(PRECOMPILED_SCHEMA);
+        hasher.update(source_name.as_bytes());
+        hasher.update(&architecture.0.to_le_bytes());
+        hasher.update(&architecture.1.to_le_bytes());
+        hasher.update(source.as_bytes());
         Self(*hasher.finalize().as_bytes())
     }
 

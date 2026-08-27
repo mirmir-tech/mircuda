@@ -66,7 +66,7 @@ pub use vendor::{
 pub fn cutlass_version() -> u32 {
     mircuda_sys::cutlass_version()
 }
-pub use source::KernelSource;
+pub use source::{KernelSource, PtxSource};
 
 /// Embeds a CUDA translation unit from a file relative to the calling crate.
 #[macro_export]
@@ -81,5 +81,13 @@ macro_rules! cuda_kernel_file {
 macro_rules! cuda_kernel_files {
     ($name:literal; $($path:literal),+ $(,)?) => {
         $crate::KernelSource::composed($name, &[$(include_str!($path)),+])
+    };
+}
+
+/// Embeds ahead-of-time PTX for one exact CUDA compute capability.
+#[macro_export]
+macro_rules! cuda_ptx_file {
+    ($capability:expr, $path:literal) => {
+        $crate::PtxSource::embedded($path, include_str!($path), $capability)
     };
 }

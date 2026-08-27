@@ -205,6 +205,10 @@ pub struct Kernel {
 }
 
 impl Kernel {
+    pub const fn set_max_dynamic_shared_memory_bytes(&self, _bytes: u32) -> Result<()> {
+        Err(unsupported())
+    }
+
     pub const fn launch(
         &self,
         _stream: &Stream,

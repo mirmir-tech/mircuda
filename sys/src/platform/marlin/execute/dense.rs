@@ -49,6 +49,8 @@ impl Context {
         )?;
         validate(spec, self, input, weight, scales, global_scale, temporary, locks, output)?;
         self.inner.bind_to_thread()?;
+        // SAFETY: validation established compatible buffers, dimensions, and
+        // context ownership before entering the native CUDA boundary.
         let status = unsafe {
             mircuda_marlin_nvfp4_dense_execute(
                 stream.inner.cu_stream().cast(),

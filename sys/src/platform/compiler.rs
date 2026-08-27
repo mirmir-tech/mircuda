@@ -120,6 +120,19 @@ impl Kernel {
         self.handle
     }
 
+    pub fn set_max_dynamic_shared_memory_bytes(&self, bytes: u32) -> Result<()> {
+        self.module.inner.context.bind_to_thread()?;
+        let bytes = i32::try_from(bytes)?;
+        // SAFETY: this kernel retains the live module owning the CUDA function.
+        Ok(unsafe {
+            result::function::set_function_attribute(
+                self.handle,
+                sys::CUfunction_attribute_enum::CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+                bytes,
+            )
+        }?)
+    }
+
     pub(super) fn argument_pointers(
         &self,
         stream: &Stream,

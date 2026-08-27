@@ -92,6 +92,8 @@ impl FmhaBf16Plan {
             return Err(Error::InvalidMatmulBuffer);
         }
         self.stream.context().bind_to_thread()?;
+        // SAFETY: all buffers and dimensions were validated above, and the CUDA
+        // context owning them is bound to this thread.
         let status = unsafe {
             mircuda_flash_attn2_paged_bf16_execute_split(
                 query.pointer() as *const c_void,

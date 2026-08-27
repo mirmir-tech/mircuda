@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut marlin = cc::Build::new();
         configure(&mut marlin);
         if let Some(arch) = &marlin_arch {
-            marlin.flag(&format!("-gencode=arch=compute_{arch},code=sm_{arch}"));
+            marlin.flag(format!("-gencode=arch=compute_{arch},code=sm_{arch}"));
         }
         marlin
             .include("native/marlin/vendor")
@@ -83,6 +83,7 @@ fn rerun_sources() {
         "grouped_fp4_sm120.cuh",
         "variable_grouped_fp4_sm120.cu",
         "variable_grouped_fp4_sm120.cuh",
+        "variable_grouped_fp4_pair_sm120.cuh",
         "variable_grouped_bf16_sm120.cu",
         "variable_grouped_bf16_sm120.cuh",
         "marlin/repack.cu",

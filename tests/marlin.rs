@@ -33,7 +33,7 @@ fn canonical_weights() -> Vec<u8> {
                 let low = (expert * 7 + n * 3 + k) & 15;
                 let high = (expert * 7 + n * 3 + k + 1) & 15;
                 result[expert * N * K / 2 + n * K / 2 + k / 2] =
-                    u8::try_from(low | high << 4).expect("nibble pattern fits u8");
+                    u8::try_from(low | high << 4).unwrap_or_default();
             }
         }
     }
