@@ -7,6 +7,7 @@ use mircuda::{
 
 mod head64;
 mod paged;
+mod paged_decode;
 
 const QUERY_HEADS: usize = 4;
 const KV_HEADS: usize = 2;
