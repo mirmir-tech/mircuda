@@ -86,12 +86,44 @@ fn paged_varlen_fmha_matches_contiguous_varlen() -> mircuda::Result<()> {
         PAGE_SIZE,
         scale,
     )?;
+    let first_query_elements = query_lengths[0] * QUERY_HEADS * HEAD_DIM;
+    let split_query = copy_device(&context, &stream, &pool, &query[..first_query_elements])?;
+    let mut split_actual = pool.allocate_zeroed::<bf16>(&stream, first_query_elements)?;
+    let mut split_lse = pool.allocate_zeroed::<f32>(&stream, query_lengths[0] * QUERY_HEADS)?;
+    let mut output_accum = pool.allocate_zeroed::<f32>(&stream, first_query_elements * 2)?;
+    let mut split_lse_accum =
+        pool.allocate_zeroed::<f32>(&stream, query_lengths[0] * QUERY_HEADS * 2)?;
+    plan.execute_paged_varlen_split(
+        &stream,
+        &split_query,
+        &key_pages,
+        &value_pages,
+        &mut split_actual,
+        &query_starts,
+        &token_counts,
+        &key_starts,
+        &block_table,
+        &mut split_lse,
+        &mut output_accum,
+        &mut split_lse_accum,
+        2,
+        1,
+        query_lengths[0],
+        query_lengths[0],
+        context_lengths[0],
+        2,
+        PAGE_SIZE,
+        scale,
+    )?;
     let expected = read_device(&context, &stream, &expected)?;
     let actual = read_device(&context, &stream, &actual)?;
+    let split_actual = read_device(&context, &stream, &split_actual)?;
     let contiguous_actual = read_device(&context, &stream, &contiguous_actual)?;
     let shuffled_error = maximum_error(&expected, &actual);
+    let split_error = maximum_error(&expected[..first_query_elements], &split_actual);
     let contiguous_error = maximum_error(&expected, &contiguous_actual);
     assert!(shuffled_error <= 0.031_25, "maximum shuffled BF16 difference: {shuffled_error}");
+    assert!(split_error <= 0.031_25, "maximum split BF16 difference: {split_error}");
     assert!(
         contiguous_error <= 0.031_25,
         "maximum contiguous BF16 difference: {contiguous_error}"
