@@ -47,6 +47,17 @@ pub enum Error {
     /// Launch geometry is empty or exceeds CUDA's representable grid.
     #[error("invalid CUDA launch geometry")]
     InvalidLaunch,
+    /// Embedded PTX contains an interior NUL and cannot be passed to CUDA.
+    #[error("embedded PTX contains an interior NUL byte")]
+    InvalidEmbeddedPtx,
+    /// Device-specialized PTX was selected for a different compute capability.
+    #[error("PTX targets compute capability {target:?}, but the device is {device:?}")]
+    PtxArchitectureMismatch {
+        /// Compute capability encoded by the generated artifact.
+        target: (i32, i32),
+        /// Compute capability reported by the active CUDA context.
+        device: (i32, i32),
+    },
     /// A matrix dimension is zero or overflows an addressable element count.
     #[error("invalid matrix multiplication shape")]
     InvalidMatmulShape,

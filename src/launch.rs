@@ -88,6 +88,11 @@ impl<S: KernelSignature> TypedKernel<S> {
         &self.native
     }
 
+    /// Raises the opt-in dynamic shared-memory limit for this kernel.
+    pub fn set_max_dynamic_shared_memory_bytes(&self, bytes: u32) -> Result<()> {
+        Ok(self.native.set_max_dynamic_shared_memory_bytes(bytes)?)
+    }
+
     /// Enqueues a typed launch without synchronizing the host.
     pub fn launch(
         &self,

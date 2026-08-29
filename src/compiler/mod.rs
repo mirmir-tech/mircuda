@@ -1,6 +1,7 @@
 mod architecture;
 mod cache;
 mod key;
+mod precompiled;
 
 use std::{
     collections::HashMap,
@@ -54,6 +55,7 @@ pub struct CompileCacheStats {
 #[derive(Debug)]
 pub struct Compiler {
     context: Context,
+    capability: (i32, i32),
     architecture: String,
     nvrtc_version: (i32, i32),
     config: CompilerConfig,
@@ -92,6 +94,7 @@ impl Compiler {
         let persistent = config.cache_directory.clone().map(ArtifactCache::new);
         Ok(Self {
             context,
+            capability,
             architecture: target_architecture(capability),
             nvrtc_version,
             config,

@@ -1,6 +1,6 @@
 #[cfg(target_os = "linux")]
 use mircuda::{CompileOptions, Compiler, CompilerConfig, Driver, LaunchConfig, cuda_kernel_file};
-use mircuda::{DeviceBuffer, cuda_export};
+use mircuda::{DeviceBuffer, cuda_export, cuda_ptx_file};
 
 cuda_export!(
     ProbeKernel = "mircuda_probe"(
@@ -9,6 +9,8 @@ cuda_export!(
         length: u32,
     )
 );
+
+cuda_export!(PrecompiledProbe = "mircuda_precompiled_probe"());
 
 #[test]
 #[cfg(target_os = "linux")]
@@ -54,6 +56,34 @@ fn compiles_caches_and_launches_on_an_explicit_stream() -> mircuda::Result<()> {
     stream.synchronize()?;
     pool.trim_to(0)?;
     Ok(())
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn loads_caches_and_launches_precompiled_ptx() -> mircuda::Result<()> {
+    let driver = Driver::initialize()?;
+    let device = driver.devices()?.into_iter().next().ok_or(mircuda::Error::InvalidLaunch)?;
+    let context = driver.create_context(device)?;
+    if context.device_info()?.compute_capability != (12, 1) {
+        return Ok(());
+    }
+    let stream = context.create_stream()?;
+    let compiler = Compiler::new(context)?;
+    let source = cuda_ptx_file!((12, 1), "../kernels/probe.ptx");
+    let module = compiler.load_ptx(source)?;
+    let cached = compiler.load_ptx(source)?;
+    assert_eq!(compiler.cache_stats().hits, 1);
+    module.kernel::<PrecompiledProbe>()?.launch(
+        &stream,
+        LaunchConfig {
+            grid: (1, 1, 1),
+            block: (1, 1, 1),
+            shared_memory_bytes: 0,
+        },
+        (),
+    )?;
+    drop(cached);
+    stream.synchronize()
 }
 
 #[test]

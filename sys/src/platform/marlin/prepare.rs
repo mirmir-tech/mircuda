@@ -179,7 +179,7 @@ pub(super) fn validate_context(
     Ok(())
 }
 
-pub(super) fn native_status(status: i32) -> Result<()> {
+pub(super) const fn native_status(status: i32) -> Result<()> {
     if status == 0 {
         Ok(())
     } else {

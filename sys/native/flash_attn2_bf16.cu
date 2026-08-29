@@ -18,6 +18,11 @@ int launch_typed(
     int max_query_tokens, int max_context_tokens, int batch_size,
     int max_blocks, int page_block_size, int query_heads, int kv_heads,
     float scale, cudaStream_t stream) {
+  const bool is_decode = max_query_tokens == 1;
+  const bool transpose_gqa = is_decode && query_heads > kv_heads;
+  const int query_groups = query_heads / kv_heads;
+  const int effective_query_tokens = transpose_gqa ? query_groups : max_query_tokens;
+  const int effective_query_heads = transpose_gqa ? kv_heads : query_heads;
   flash::Flash_fwd_params params{};
   params.q_ptr = const_cast<void*>(query);
   params.k_ptr = const_cast<void*>(key_pages);
@@ -26,33 +31,35 @@ int launch_typed(
   params.softmax_lse_ptr = softmax_lse;
   params.oaccum_ptr = output_accum;
   params.softmax_lseaccum_ptr = softmax_lse_accum;
-  params.cu_seqlens_q = const_cast<int*>(query_starts);
+  params.cu_seqlens_q = transpose_gqa ? nullptr : const_cast<int*>(query_starts);
   params.cu_seqlens_k = const_cast<int*>(context_starts);
   params.seqused_k = const_cast<int*>(token_counts);
   params.block_table = const_cast<int*>(block_table);
-  params.q_row_stride = query_heads * HeadDim;
+  params.q_row_stride = transpose_gqa ? HeadDim : query_heads * HeadDim;
   params.k_row_stride = kv_heads * HeadDim;
   params.v_row_stride = kv_heads * HeadDim;
-  params.o_row_stride = query_heads * HeadDim;
-  params.q_head_stride = HeadDim;
+  params.o_row_stride = params.q_row_stride;
+  params.q_head_stride = transpose_gqa ? query_groups * HeadDim : HeadDim;
   params.k_head_stride = HeadDim;
   params.v_head_stride = HeadDim;
-  params.o_head_stride = HeadDim;
+  params.o_head_stride = params.q_head_stride;
+  params.q_batch_stride = query_heads * HeadDim;
+  params.o_batch_stride = query_heads * HeadDim;
   params.k_batch_stride = page_block_size * params.k_row_stride;
   params.v_batch_stride = page_block_size * params.v_row_stride;
   params.block_table_batch_stride = max_blocks;
   params.page_block_size = page_block_size;
   params.b = batch_size;
-  params.h = query_heads;
+  params.h = effective_query_heads;
   params.h_k = kv_heads;
-  params.h_h_k_ratio = query_heads / kv_heads;
-  params.seqlen_q = max_query_tokens;
+  params.h_h_k_ratio = effective_query_heads / kv_heads;
+  params.seqlen_q = effective_query_tokens;
   params.seqlen_k = max_context_tokens;
-  params.seqlen_q_rounded = ((max_query_tokens + 127) / 128) * 128;
+  params.seqlen_q_rounded = ((effective_query_tokens + 127) / 128) * 128;
   params.seqlen_k_rounded = ((max_context_tokens + 127) / 128) * 128;
   params.d = HeadDim;
   params.d_rounded = HeadDim;
-  params.total_q = total_query_tokens;
+  params.total_q = transpose_gqa ? batch_size * query_groups : total_query_tokens;
   params.scale_softmax = scale;
   params.scale_softmax_log2 = scale * static_cast<float>(M_LOG2E);
   params.p_dropout = 1.0F;
@@ -60,12 +67,12 @@ int launch_typed(
   params.rp_dropout = 1.0F;
   params.scale_softmax_rp_dropout = scale;
   params.window_size_left = -1;
-  params.window_size_right = 0;
+  params.window_size_right = is_decode ? -1 : 0;
   params.is_bf16 = true;
-  const bool is_decode = max_query_tokens == 1;
   params.is_causal = !is_decode;
   params.is_seqlens_k_cumulative = true;
   params.unpadded_lse = true;
+  params.seqlenq_ngroups_swapped = transpose_gqa;
   params.num_splits = num_splits;
   if (is_decode) {
     flash::run_mha_fwd_splitkv_dispatch<cutlass::bfloat16_t, HeadDim, false>(

@@ -50,7 +50,7 @@ using CollectiveMainloop =
         LayoutB*, AlignmentAB, ElementAccumulator, MmaTileShape, ClusterShape,
         cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
             sizeof(typename CollectiveEpilogue::SharedStorage))>,
-        cutlass::gemm::collective::KernelScheduleAuto>::CollectiveOp;
+        cutlass::gemm::KernelPtrArrayTmaWarpSpecializedPingpong>::CollectiveOp;
 using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
     ProblemShape, CollectiveMainloop, CollectiveEpilogue>;
 using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
