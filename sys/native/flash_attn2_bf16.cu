@@ -17,8 +17,9 @@ int launch_typed(
     int total_query_tokens,
     int max_query_tokens, int max_context_tokens, int batch_size,
     int max_blocks, int page_block_size, int query_heads, int kv_heads,
-    float scale, cudaStream_t stream) {
+    int window_size_left, float scale, cudaStream_t stream) {
   const bool is_decode = max_query_tokens == 1;
+  const bool is_local = !is_decode && window_size_left >= 0;
   const bool transpose_gqa = is_decode && query_heads > kv_heads;
   const int query_groups = query_heads / kv_heads;
   const int effective_query_tokens = transpose_gqa ? query_groups : max_query_tokens;
@@ -66,15 +67,15 @@ int launch_typed(
   params.p_dropout_in_uint8_t = 255;
   params.rp_dropout = 1.0F;
   params.scale_softmax_rp_dropout = scale;
-  params.window_size_left = -1;
-  params.window_size_right = is_decode ? -1 : 0;
+  params.window_size_left = is_local ? window_size_left : -1;
+  params.window_size_right = is_local ? 0 : -1;
   params.is_bf16 = true;
-  params.is_causal = !is_decode;
+  params.is_causal = !is_decode && !is_local;
   params.is_seqlens_k_cumulative = true;
   params.unpadded_lse = true;
   params.seqlenq_ngroups_swapped = transpose_gqa;
   params.num_splits = num_splits;
-  if (is_decode) {
+  if (is_decode || is_local) {
     flash::run_mha_fwd_splitkv_dispatch<cutlass::bfloat16_t, HeadDim, false>(
         params, stream);
   } else {
@@ -91,14 +92,15 @@ int launch(
     float* output_accum, float* softmax_lse_accum, int num_splits,
     int total_query_tokens, int max_query_tokens, int max_context_tokens,
     int batch_size, int max_blocks, int page_block_size, int query_heads,
-    int kv_heads, int head_dim, float scale, cudaStream_t stream) {
+    int kv_heads, int head_dim, int window_size_left, float scale,
+    cudaStream_t stream) {
   if (head_dim == 64) {
     return launch_typed<64>(
         query, key_pages, value_pages, output, query_starts, token_counts,
         context_starts, block_table, softmax_lse, output_accum,
         softmax_lse_accum, num_splits, total_query_tokens,
         max_query_tokens, max_context_tokens, batch_size, max_blocks,
-        page_block_size, query_heads, kv_heads, scale, stream);
+        page_block_size, query_heads, kv_heads, window_size_left, scale, stream);
   }
   if (head_dim == 128) {
     return launch_typed<128>(
@@ -106,14 +108,14 @@ int launch(
         context_starts, block_table, softmax_lse, output_accum,
         softmax_lse_accum, num_splits, total_query_tokens,
         max_query_tokens, max_context_tokens, batch_size, max_blocks,
-        page_block_size, query_heads, kv_heads, scale, stream);
+        page_block_size, query_heads, kv_heads, window_size_left, scale, stream);
   }
   return launch_typed<256>(
       query, key_pages, value_pages, output, query_starts, token_counts,
       context_starts, block_table, softmax_lse, output_accum,
       softmax_lse_accum, num_splits, total_query_tokens,
       max_query_tokens, max_context_tokens, batch_size, max_blocks,
-      page_block_size, query_heads, kv_heads, scale, stream);
+      page_block_size, query_heads, kv_heads, window_size_left, scale, stream);
 }
 
 }  // namespace mircuda::flash_attn2
@@ -126,7 +128,7 @@ extern "C" int mircuda_flash_attn2_paged_bf16_execute_split(
     int total_query_tokens,
     int max_query_tokens, int max_context_tokens, int batch_size,
     int max_blocks, int page_block_size, int query_heads, int kv_heads,
-    int head_dim, float scale, void* stream) {
+    int head_dim, int window_size_left, float scale, void* stream) {
   if (query == nullptr || key_pages == nullptr || value_pages == nullptr ||
       output == nullptr || query_starts == nullptr || token_counts == nullptr ||
       context_starts == nullptr || block_table == nullptr ||
@@ -137,7 +139,7 @@ extern "C" int mircuda_flash_attn2_paged_bf16_execute_split(
       max_context_tokens < max_query_tokens || batch_size <= 0 ||
       max_blocks <= 0 || page_block_size <= 0 ||
       page_block_size % 16 != 0 || query_heads <= 0 || kv_heads <= 0 ||
-      query_heads % kv_heads != 0 ||
+      query_heads % kv_heads != 0 || window_size_left < -1 ||
       (head_dim != 64 && head_dim != 128 && head_dim != 256)) {
     return -1;
   }
@@ -147,7 +149,8 @@ extern "C" int mircuda_flash_attn2_paged_bf16_execute_split(
       softmax_lse_accum, num_splits, total_query_tokens,
       max_query_tokens,
       max_context_tokens, batch_size, max_blocks, page_block_size, query_heads,
-      kv_heads, head_dim, scale, static_cast<cudaStream_t>(stream));
+      kv_heads, head_dim, window_size_left, scale,
+      static_cast<cudaStream_t>(stream));
 }
 
 extern "C" int mircuda_flash_attn2_paged_bf16_execute(
@@ -156,11 +159,12 @@ extern "C" int mircuda_flash_attn2_paged_bf16_execute(
     const int* context_starts, const int* block_table, float* softmax_lse,
     int total_query_tokens, int max_query_tokens, int max_context_tokens,
     int batch_size, int max_blocks, int page_block_size, int query_heads,
-    int kv_heads, int head_dim, float scale, void* stream) {
+    int kv_heads, int head_dim, int window_size_left, float scale,
+    void* stream) {
   return mircuda_flash_attn2_paged_bf16_execute_split(
       query, key_pages, value_pages, output, query_starts, token_counts,
       context_starts, block_table, softmax_lse, nullptr, nullptr, 1,
       total_query_tokens, max_query_tokens, max_context_tokens, batch_size,
-      max_blocks, page_block_size, query_heads, kv_heads, head_dim, scale,
-      stream);
+      max_blocks, page_block_size, query_heads, kv_heads, head_dim,
+      window_size_left, scale, stream);
 }

@@ -28,7 +28,9 @@ pub use driver::{Context, DeviceInfo, Driver, Stream};
 pub use event::Event;
 pub use graph::{CaptureMode, Graph, KernelNode};
 #[cfg(feature = "marlin")]
-pub use marlin::{MarlinNvFp4MoeSpec, MarlinNvFp4RepackSpec, MarlinNvFp4ThreadConfig};
+pub use marlin::{
+    MarlinMxFp4RepackSpec, MarlinNvFp4MoeSpec, MarlinNvFp4RepackSpec, MarlinNvFp4ThreadConfig,
+};
 pub use memory::{DeviceBuffer, MemoryPool, MemoryPoolStats, PinnedBuffer};
 pub use profile::ProfilerRange;
 #[cfg(feature = "cublaslt")]

@@ -31,6 +31,7 @@ unsafe extern "C" {
         query_heads: i32,
         kv_heads: i32,
         head_dim: i32,
+        window_size_left: i32,
         scale: f32,
         stream: *mut c_void,
     ) -> i32;
@@ -56,6 +57,50 @@ impl FmhaBf16Plan {
         max_context_tokens: usize,
         max_blocks: usize,
         page_block_size: usize,
+        scale: f32,
+    ) -> Result<()> {
+        self.execute_paged_varlen_windowed(
+            stream,
+            query,
+            key_pages,
+            value_pages,
+            output,
+            query_starts,
+            token_counts,
+            context_starts,
+            block_table,
+            softmax_lse,
+            batch_size,
+            total_query_tokens,
+            max_query_tokens,
+            max_context_tokens,
+            max_blocks,
+            page_block_size,
+            None,
+            scale,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn execute_paged_varlen_windowed(
+        &self,
+        stream: &Stream,
+        query: &DeviceBuffer,
+        key_pages: &DeviceBuffer,
+        value_pages: &DeviceBuffer,
+        output: &DeviceBuffer,
+        query_starts: &DeviceBuffer,
+        token_counts: &DeviceBuffer,
+        context_starts: &DeviceBuffer,
+        block_table: &DeviceBuffer,
+        softmax_lse: &DeviceBuffer,
+        batch_size: usize,
+        total_query_tokens: usize,
+        max_query_tokens: usize,
+        max_context_tokens: usize,
+        max_blocks: usize,
+        page_block_size: usize,
+        window_size_left: Option<usize>,
         scale: f32,
     ) -> Result<()> {
         validate(
@@ -100,6 +145,7 @@ impl FmhaBf16Plan {
                 i32::try_from(self.spec.query_heads)?,
                 i32::try_from(self.spec.kv_heads)?,
                 i32::try_from(self.spec.head_dim)?,
+                window_size_left.map_or(Ok(-1), i32::try_from)?,
                 scale,
                 stream.inner.cu_stream().cast(),
             )

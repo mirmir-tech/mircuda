@@ -52,6 +52,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .file("native/marlin/repack.cu")
             .file("native/marlin/dense_kernel.cu")
             .file("native/marlin/moe_kernel.cu")
+            .file("native/marlin/mxfp4_moe_kernel.cu")
             .compile("mircuda_marlin");
     }
     if env::var_os("CARGO_FEATURE_CUTLASS").is_none() {
@@ -89,6 +90,7 @@ fn rerun_sources() {
         "marlin/repack.cu",
         "marlin/dense_kernel.cu",
         "marlin/moe_kernel.cu",
+        "marlin/mxfp4_moe_kernel.cu",
         "marlin/vendor/dequant.h",
         "marlin/vendor/marlin.cuh",
         "marlin/vendor/marlin_dtypes.cuh",

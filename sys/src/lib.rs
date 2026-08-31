@@ -25,7 +25,9 @@ pub use platform::{
     CublasLtFp8Spec,
 };
 #[cfg(feature = "marlin")]
-pub use platform::{MarlinNvFp4MoeSpec, MarlinNvFp4RepackSpec, MarlinNvFp4ThreadConfig};
+pub use platform::{
+    MarlinMxFp4RepackSpec, MarlinNvFp4MoeSpec, MarlinNvFp4RepackSpec, MarlinNvFp4ThreadConfig,
+};
 
 #[cfg(all(target_os = "linux", feature = "cutlass"))]
 unsafe extern "C" {

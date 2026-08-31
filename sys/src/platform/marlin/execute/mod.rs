@@ -13,6 +13,7 @@ use crate::{
 };
 
 mod dense;
+mod mxfp4;
 
 unsafe extern "C" {
     fn mircuda_marlin_prepare_moe_routes(
@@ -26,6 +27,7 @@ unsafe extern "C" {
         routing_f32: *mut c_void,
         assignments: i32,
         experts: i32,
+        block_size: i32,
     ) -> i32;
     fn mircuda_marlin_nvfp4_moe_execute(
         stream: *mut c_void,
@@ -71,10 +73,11 @@ impl Context {
         )?;
         let assignments = assignments(spec)?;
         let capacity = padded_capacity(spec)?;
+        let block_size = spec.thread_config.moe_block_size();
         if selected.bytes() != assignments * size_of::<u32>()
             || routing.bytes() != assignments * size_of::<u16>()
             || sorted.bytes() != capacity * size_of::<i32>()
-            || expert_ids.bytes() != capacity.div_ceil(8) * size_of::<i32>()
+            || expert_ids.bytes() != capacity.div_ceil(block_size) * size_of::<i32>()
             || padded.bytes() != size_of::<i32>()
             || offsets.bytes() != spec.experts * size_of::<i32>()
             || routing_f32.bytes() != assignments * size_of::<f32>()
@@ -95,6 +98,7 @@ impl Context {
                 routing_f32.pointer() as *mut c_void,
                 i32::try_from(assignments)?,
                 i32::try_from(spec.experts)?,
+                i32::try_from(block_size)?,
             )
         };
         native_status(status)
@@ -185,12 +189,16 @@ fn validate_execution(
     Ok(())
 }
 
-fn assignments(spec: MarlinNvFp4MoeSpec) -> Result<usize> {
+pub(super) fn assignments(spec: MarlinNvFp4MoeSpec) -> Result<usize> {
     spec.tokens.checked_mul(spec.top_k).ok_or(Error::InvalidMatmulBuffer)
 }
 
 fn padded_capacity(spec: MarlinNvFp4MoeSpec) -> Result<usize> {
     assignments(spec)?
-        .checked_add(spec.experts.checked_mul(7).ok_or(Error::InvalidMatmulBuffer)?)
+        .checked_add(
+            spec.experts
+                .checked_mul(spec.thread_config.moe_block_size() - 1)
+                .ok_or(Error::InvalidMatmulBuffer)?,
+        )
         .ok_or(Error::InvalidMatmulBuffer)
 }

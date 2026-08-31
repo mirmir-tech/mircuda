@@ -29,6 +29,7 @@ unsafe extern "C" {
         query_heads: i32,
         kv_heads: i32,
         head_dim: i32,
+        window_size_left: i32,
         scale: f32,
         stream: *mut c_void,
     ) -> i32;
@@ -117,6 +118,7 @@ impl FmhaBf16Plan {
                 i32::try_from(self.spec.query_heads)?,
                 i32::try_from(self.spec.kv_heads)?,
                 i32::try_from(self.spec.head_dim)?,
+                -1,
                 scale,
                 stream.inner.cu_stream().cast(),
             )

@@ -26,11 +26,11 @@ pub use cutlass::{
     BlockScaledFp4Plan, BlockScaledFp4Spec, BlockScaledFp4VectorPlan, BlockScaledFp4VectorSpec,
     BlockScaledMxFp8Plan, BlockScaledMxFp8Spec, BlockwiseFp8VectorPlan, BlockwiseFp8VectorSpec,
     DenseMatmulElement, DenseMatmulOutput, DenseMatmulPlan, DenseMatmulSpec, DenseVectorPlan,
-    DenseVectorSpec, FmhaBf16Plan, FmhaBf16Spec, IndexedGroupedFp4Plan, IndexedGroupedFp4Spec,
-    PairedVariableGroupedFp4Launch, PairedVariableGroupedFp4Plan, ScaledFp8Plan, ScaledFp8Scale,
-    ScaledFp8Spec, ScaledFp8Tile, ScaledFp8WeightScale, VariableGroupedBf16Plan,
-    VariableGroupedBf16Spec, VariableGroupedFp4Metadata, VariableGroupedFp4Operands,
-    VariableGroupedFp4Plan, VariableGroupedFp4Spec,
+    DenseVectorSpec, FmhaBf16Plan, FmhaBf16Spec, FmhaCausalWindow, IndexedGroupedFp4Plan,
+    IndexedGroupedFp4Spec, PairedVariableGroupedFp4Launch, PairedVariableGroupedFp4Plan,
+    ScaledFp8Plan, ScaledFp8Scale, ScaledFp8Spec, ScaledFp8Tile, ScaledFp8WeightScale,
+    VariableGroupedBf16Plan, VariableGroupedBf16Spec, VariableGroupedFp4Metadata,
+    VariableGroupedFp4Operands, VariableGroupedFp4Plan, VariableGroupedFp4Spec,
 };
 pub use driver::{Context, Device, DeviceInfo, Driver, Stream};
 pub use error::{Error, Result};
@@ -42,8 +42,8 @@ pub use launch::{
 };
 #[cfg(feature = "marlin")]
 pub use marlin::{
-    MarlinNvFp4DenseOperands, MarlinNvFp4MoeOperands, MarlinNvFp4MoeSpec, MarlinNvFp4RepackSpec,
-    MarlinNvFp4ThreadConfig,
+    MarlinMxFp4MoeOperands, MarlinMxFp4RepackSpec, MarlinNvFp4DenseOperands,
+    MarlinNvFp4MoeOperands, MarlinNvFp4MoeSpec, MarlinNvFp4RepackSpec, MarlinNvFp4ThreadConfig,
 };
 pub use memory::{DeviceBuffer, DeviceElement, MemoryPool, MemoryPoolStats, PinnedBuffer};
 pub use mircuda_macros::{cuda_export, cuda_kernel};
