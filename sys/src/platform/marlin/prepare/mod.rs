@@ -41,6 +41,8 @@ unsafe extern "C" {
     ) -> i32;
 }
 
+mod mxfp4;
+
 impl Context {
     pub fn marlin_repack_nvfp4(
         &self,
@@ -187,13 +189,13 @@ pub(super) const fn native_status(status: i32) -> Result<()> {
     }
 }
 
-fn matrix_elements(spec: MarlinNvFp4RepackSpec) -> Result<usize> {
+pub(super) fn matrix_elements(spec: MarlinNvFp4RepackSpec) -> Result<usize> {
     spec.experts
         .checked_mul(spec.n)
         .and_then(|value| value.checked_mul(spec.k))
         .ok_or(Error::InvalidMatmulBuffer)
 }
 
-fn matrix_bytes(spec: MarlinNvFp4RepackSpec) -> Result<usize> {
+pub(super) fn matrix_bytes(spec: MarlinNvFp4RepackSpec) -> Result<usize> {
     matrix_elements(spec)?.checked_div(2).ok_or(Error::InvalidMatmulBuffer)
 }

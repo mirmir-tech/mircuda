@@ -1,6 +1,34 @@
+use std::num::NonZeroUsize;
+
 use crate::{Context, DeviceBuffer, Error, Result, Stream, bf16};
 
 mod paged;
+
+/// Causal K/V visibility used by paged fused attention.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum FmhaCausalWindow {
+    /// Every causal key before and including the query is visible.
+    Full,
+    /// At most this many causal keys, including the current position, are visible.
+    Sliding(NonZeroUsize),
+}
+
+impl FmhaCausalWindow {
+    /// Creates a non-empty sliding causal window measured in visible tokens.
+    pub const fn sliding(tokens: usize) -> Result<Self> {
+        match NonZeroUsize::new(tokens) {
+            Some(tokens) => Ok(Self::Sliding(tokens)),
+            None => Err(Error::InvalidMatmulShape),
+        }
+    }
+
+    pub(super) const fn left_tokens(self) -> Option<usize> {
+        match self {
+            Self::Full => None,
+            Self::Sliding(tokens) => Some(tokens.get() - 1),
+        }
+    }
+}
 
 /// Head geometry supported by the BF16 CUTLASS fused-attention plan.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

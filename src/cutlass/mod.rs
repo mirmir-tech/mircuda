@@ -10,7 +10,7 @@ mod variable_grouped_fp4;
 mod vector;
 
 pub use dense::{DenseMatmulElement, DenseMatmulOutput, DenseMatmulPlan, DenseMatmulSpec};
-pub use fmha::{FmhaBf16Plan, FmhaBf16Spec};
+pub use fmha::{FmhaBf16Plan, FmhaBf16Spec, FmhaCausalWindow};
 pub use fp4::{
     BlockScaledFp4Plan, BlockScaledFp4Spec, BlockScaledFp4VectorPlan, BlockScaledFp4VectorSpec,
 };

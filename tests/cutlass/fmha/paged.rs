@@ -7,6 +7,7 @@ use super::{
 const PAGE_SIZE: usize = 16;
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn paged_varlen_fmha_matches_contiguous_varlen() -> mircuda::Result<()> {
     let (context, stream, pool) = environment()?;
     let query_lengths = [2_usize, 3];

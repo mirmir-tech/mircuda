@@ -11,19 +11,33 @@
 namespace {
 
 __device__ uint32_t nibble(const uint8_t* left, const uint8_t* right,
-                           int expert, int n, int k, int size_n, int size_k) {
+                           int expert, int n, int k, int size_n, int size_k,
+                           int logical_n, int logical_k,
+                           bool interleaved_gate_up) {
+  if (k >= logical_k) return 0;
   const bool paired = right != nullptr;
-  const int source_n = paired ? size_n / 2 : size_n;
-  const uint8_t* source = paired && n >= source_n ? right : left;
-  const int row = paired && n >= source_n ? n - source_n : n;
+  const int source_n = paired ? logical_n / 2 : logical_n;
+  const uint8_t* source = paired && n >= size_n / 2 ? right : left;
+  int row = paired && n >= size_n / 2 ? n - size_n / 2 : n;
+  if (interleaved_gate_up) {
+    const int physical_intermediate = size_n / 2;
+    const int logical_intermediate = logical_n / 2;
+    const bool up = n >= physical_intermediate;
+    const int unit = up ? n - physical_intermediate : n;
+    if (unit >= logical_intermediate) return 0;
+    row = unit * 2 + static_cast<int>(up);
+  } else if (row >= source_n) {
+    return 0;
+  }
   const uint8_t packed =
-      source[(expert * source_n + row) * (size_k / 2) + k / 2];
+      source[(expert * source_n + row) * (logical_k / 2) + k / 2];
   return (packed >> ((k & 1) * 4)) & 0x0f;
 }
 
 __global__ void repack_nvfp4(const uint8_t* left, const uint8_t* right,
                              uint32_t* output, int experts, int size_n,
-                             int size_k) {
+                             int size_k, int logical_n, int logical_k,
+                             bool interleaved_gate_up) {
   constexpr int tile_k = 16;
   constexpr int tile_n = 64;
   constexpr int words_per_tile = tile_k * tile_n / 8;
@@ -50,9 +64,11 @@ __global__ void repack_nvfp4(const uint8_t* left, const uint8_t* right,
 #pragma unroll
   for (int index = 0; index < 4; ++index) {
     const int k = base_k + row + offsets[index];
-    values[index] = nibble(left, right, expert, base_n, k, size_n, size_k);
+    values[index] = nibble(left, right, expert, base_n, k, size_n, size_k,
+                           logical_n, logical_k, interleaved_gate_up);
     values[4 + index] =
-        nibble(left, right, expert, base_n + 8, k, size_n, size_k);
+        nibble(left, right, expert, base_n + 8, k, size_n, size_k,
+               logical_n, logical_k, interleaved_gate_up);
   }
   constexpr int order[8] = {0, 2, 4, 6, 1, 3, 5, 7};
   uint32_t packed = 0;
@@ -123,15 +139,52 @@ __global__ void prepare_scales(const uint8_t* left, const uint8_t* right,
   }
 }
 
+__global__ void prepare_mxfp4_scales(const uint8_t* input, uint8_t* output,
+                                     int experts, int size_n, int size_k,
+                                     int logical_n, int logical_k,
+                                     bool interleaved_gate_up) {
+  const int groups = size_k / 32;
+  const int elements_per_expert = size_n * groups;
+  const int total = experts * elements_per_expert;
+  const int index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index >= total) return;
+  const int expert = index / elements_per_expert;
+  const int logical = index % elements_per_expert;
+  const int group = logical / size_n;
+  const int n = logical % size_n;
+  if (group >= logical_k / 32) {
+    output[expert * elements_per_expert + scale_destination(logical)] = 127;
+    return;
+  }
+  int source_n = n;
+  if (interleaved_gate_up) {
+    const int physical_intermediate = size_n / 2;
+    const int logical_intermediate = logical_n / 2;
+    const bool up = n >= physical_intermediate;
+    const int unit = up ? n - physical_intermediate : n;
+    if (unit >= logical_intermediate) {
+      output[expert * elements_per_expert + scale_destination(logical)] = 127;
+      return;
+    }
+    source_n = unit * 2 + static_cast<int>(up);
+  } else if (n >= logical_n) {
+    output[expert * elements_per_expert + scale_destination(logical)] = 127;
+    return;
+  }
+  const int source_groups = logical_k / 32;
+  const int source = (expert * logical_n + source_n) * source_groups + group;
+  output[expert * elements_per_expert + scale_destination(logical)] = input[source];
+}
+
 __global__ void prepare_routes(const uint32_t* selected,
                                const __nv_bfloat16* routing, int32_t* sorted,
                                int32_t* expert_ids, int32_t* padded,
                                int32_t* offsets, float* routing_f32,
-                               int assignments, int experts) {
+                               int assignments, int experts, int block_size) {
   extern __shared__ int32_t shared[];
   int32_t* counts = shared;
   int32_t* cursors = shared + experts;
-  const int capacity = assignments + experts * 7;
+  const int capacity = assignments + experts * (block_size - 1);
   for (int expert = threadIdx.x; expert < experts; expert += blockDim.x) {
     counts[expert] = 0;
     cursors[expert] = 0;
@@ -148,7 +201,10 @@ __global__ void prepare_routes(const uint32_t* selected,
   __syncthreads();
   if (experts <= blockDim.x) {
     const int expert = threadIdx.x;
-    if (expert < experts) cursors[expert] = ((counts[expert] + 7) / 8) * 8;
+    if (expert < experts) {
+      cursors[expert] =
+          ((counts[expert] + block_size - 1) / block_size) * block_size;
+    }
     __syncthreads();
     for (int stride = 1; stride < experts; stride *= 2) {
       const int value = expert < experts && expert >= stride
@@ -159,11 +215,12 @@ __global__ void prepare_routes(const uint32_t* selected,
       __syncthreads();
     }
     if (expert < experts) {
-      const int count = ((counts[expert] + 7) / 8) * 8;
+      const int count =
+          ((counts[expert] + block_size - 1) / block_size) * block_size;
       const int offset = cursors[expert] - count;
       offsets[expert] = offset;
-      for (int block = 0; block < count / 8; ++block) {
-        expert_ids[offset / 8 + block] = expert;
+      for (int block = 0; block < count / block_size; ++block) {
+        expert_ids[offset / block_size + block] = expert;
       }
       if (expert == experts - 1) padded[0] = cursors[expert];
     }
@@ -171,11 +228,11 @@ __global__ void prepare_routes(const uint32_t* selected,
     int offset = 0;
     for (int expert = 0; expert < experts; ++expert) {
       offsets[expert] = offset;
-      const int blocks = (counts[expert] + 7) / 8;
+      const int blocks = (counts[expert] + block_size - 1) / block_size;
       for (int block = 0; block < blocks; ++block) {
-        expert_ids[offset / 8 + block] = expert;
+        expert_ids[offset / block_size + block] = expert;
       }
-      offset += blocks * 8;
+      offset += blocks * block_size;
     }
     padded[0] = offset;
   }
@@ -194,14 +251,19 @@ __global__ void prepare_routes(const uint32_t* selected,
 }
 
 int launch_repack(void* stream, const void* left, const void* right,
-                  void* output, int experts, int size_n, int size_k) {
+                  void* output, int experts, int size_n, int size_k,
+                  bool interleaved_gate_up = false, int logical_n = -1,
+                  int logical_k = -1) {
+  if (logical_n < 0) logical_n = size_n;
+  if (logical_k < 0) logical_k = size_k;
   const int words = experts * size_n * size_k / 8;
   int threads = 32;
   while (threads < experts && threads < 1024) threads *= 2;
   repack_nvfp4<<<(words + threads - 1) / threads, threads, 0,
                   static_cast<cudaStream_t>(stream)>>>(
       static_cast<const uint8_t*>(left), static_cast<const uint8_t*>(right),
-      static_cast<uint32_t*>(output), experts, size_n, size_k);
+      static_cast<uint32_t*>(output), experts, size_n, size_k,
+      logical_n, logical_k, interleaved_gate_up);
   return static_cast<int>(cudaGetLastError());
 }
 
@@ -217,6 +279,25 @@ extern "C" int mircuda_marlin_nvfp4_repack_pair(
     void* stream, const void* left, const void* right, void* output,
     int experts, int size_n, int size_k) {
   return launch_repack(stream, left, right, output, experts, size_n, size_k);
+}
+
+extern "C" int mircuda_marlin_mxfp4_repack(
+    void* stream, const void* input, void* output, int experts, int size_n,
+    int size_k, int logical_n, int logical_k, bool interleaved_gate_up) {
+  return launch_repack(stream, input, nullptr, output, experts, size_n, size_k,
+                       interleaved_gate_up, logical_n, logical_k);
+}
+
+extern "C" int mircuda_marlin_mxfp4_prepare_scales(
+    void* stream, const void* input, void* output, int experts, int size_n,
+    int size_k, int logical_n, int logical_k, bool interleaved_gate_up) {
+  constexpr int threads = 256;
+  const int elements = experts * size_n * size_k / 32;
+  prepare_mxfp4_scales<<<(elements + threads - 1) / threads, threads, 0,
+                          static_cast<cudaStream_t>(stream)>>>(
+      static_cast<const uint8_t*>(input), static_cast<uint8_t*>(output),
+      experts, size_n, size_k, logical_n, logical_k, interleaved_gate_up);
+  return static_cast<int>(cudaGetLastError());
 }
 
 extern "C" int mircuda_marlin_nvfp4_prepare_scales(
@@ -246,7 +327,7 @@ extern "C" int mircuda_marlin_nvfp4_prepare_scales(
 extern "C" int mircuda_marlin_prepare_moe_routes(
     void* stream, const void* selected, const void* routing, void* sorted,
     void* expert_ids, void* padded, void* offsets, void* routing_f32,
-    int assignments, int experts) {
+    int assignments, int experts, int block_size) {
   constexpr int threads = 256;
   prepare_routes<<<1, threads, experts * 2 * sizeof(int32_t),
                    static_cast<cudaStream_t>(stream)>>>(
@@ -254,6 +335,6 @@ extern "C" int mircuda_marlin_prepare_moe_routes(
       static_cast<const __nv_bfloat16*>(routing), static_cast<int32_t*>(sorted),
       static_cast<int32_t*>(expert_ids), static_cast<int32_t*>(padded),
       static_cast<int32_t*>(offsets), static_cast<float*>(routing_f32),
-      assignments, experts);
+      assignments, experts, block_size);
   return static_cast<int>(cudaGetLastError());
 }

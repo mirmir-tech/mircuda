@@ -51,7 +51,60 @@ pub struct MarlinNvFp4MoeOperands<'a> {
     pub atomic_reduce: bool,
 }
 
+/// Device buffers consumed by one Marlin OCP MXFP4 `MoE` projection.
+pub struct MarlinMxFp4MoeOperands<'a> {
+    /// BF16 input rows.
+    pub input: &'a DeviceBuffer<bf16>,
+    /// Repacked OCP MXFP4 expert weights.
+    pub weight: &'a DeviceBuffer<u8>,
+    /// Marlin-formatted E8M0 block scales.
+    pub scales: &'a DeviceBuffer<u8>,
+    /// Original-order FP32 routing weights.
+    pub routing: &'a DeviceBuffer<f32>,
+    /// Block-padded assignment indices.
+    pub sorted: &'a DeviceBuffer<i32>,
+    /// Expert id for every padded block.
+    pub expert_ids: &'a DeviceBuffer<i32>,
+    /// Device scalar holding the valid padded row count.
+    pub padded: &'a DeviceBuffer<i32>,
+    /// FP32 cross-block reduction scratch.
+    pub temporary: &'a mut DeviceBuffer<f32>,
+    /// Marlin lock workspace.
+    pub locks: &'a mut DeviceBuffer<i32>,
+    /// BF16 projection output.
+    pub output: &'a mut DeviceBuffer<bf16>,
+    /// Applies routing weights inside the projection.
+    pub multiply_routing: bool,
+    /// Uses atomic partial reductions instead of blocking locks.
+    pub atomic_reduce: bool,
+}
+
 impl Context {
+    /// Enqueues one Torch-free Marlin OCP MXFP4 `MoE` projection.
+    pub fn marlin_mxfp4_moe(
+        &self,
+        stream: &Stream,
+        spec: MarlinNvFp4MoeSpec,
+        operands: &MarlinMxFp4MoeOperands<'_>,
+    ) -> Result<()> {
+        Ok(self.native.marlin_mxfp4_moe(
+            &stream.native,
+            spec.native(),
+            &operands.input.native,
+            &operands.weight.native,
+            &operands.scales.native,
+            &operands.routing.native,
+            &operands.sorted.native,
+            &operands.expert_ids.native,
+            &operands.padded.native,
+            &operands.temporary.native,
+            &operands.locks.native,
+            &operands.output.native,
+            operands.multiply_routing,
+            operands.atomic_reduce,
+        )?)
+    }
+
     /// Enqueues one Torch-free standard dense Marlin NVFP4 projection.
     pub fn marlin_nvfp4_dense(
         &self,
@@ -100,7 +153,7 @@ impl Context {
         )?)
     }
 
-    /// Enqueues one Torch-free block-8 Marlin NVFP4 `MoE` projection.
+    /// Enqueues one Torch-free Marlin NVFP4 `MoE` projection.
     pub fn marlin_nvfp4_moe(
         &self,
         stream: &Stream,

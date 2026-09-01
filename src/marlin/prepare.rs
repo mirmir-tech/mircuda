@@ -1,7 +1,43 @@
-use super::MarlinNvFp4RepackSpec;
+use super::{MarlinMxFp4RepackSpec, MarlinNvFp4RepackSpec};
 use crate::{Context, DeviceBuffer, Error, Result, Stream};
 
 impl Context {
+    /// Reorders canonical OCP MXFP4 weights into persistent Marlin tiles.
+    pub fn marlin_repack_mxfp4(
+        &self,
+        stream: &Stream,
+        spec: MarlinMxFp4RepackSpec,
+        input: &DeviceBuffer<u8>,
+        output: &mut DeviceBuffer<u8>,
+        interleaved_gate_up: bool,
+    ) -> Result<()> {
+        Ok(self.native.marlin_repack_mxfp4(
+            &stream.native,
+            spec.native(),
+            &input.native,
+            &output.native,
+            interleaved_gate_up,
+        )?)
+    }
+
+    /// Reorders canonical E8M0 block-32 scales into Marlin's scale layout.
+    pub fn marlin_prepare_mxfp4_scales(
+        &self,
+        stream: &Stream,
+        spec: MarlinMxFp4RepackSpec,
+        input: &DeviceBuffer<u8>,
+        output: &mut DeviceBuffer<u8>,
+        interleaved_gate_up: bool,
+    ) -> Result<()> {
+        Ok(self.native.marlin_prepare_mxfp4_scales(
+            &stream.native,
+            spec.native(),
+            &input.native,
+            &output.native,
+            interleaved_gate_up,
+        )?)
+    }
+
     /// Enqueues a one-time canonical-to-Marlin expert-bank weight conversion.
     pub fn marlin_repack_nvfp4(
         &self,
