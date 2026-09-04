@@ -2,6 +2,14 @@ SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 .DEFAULT_GOAL := help
 
+CUDA_HOME ?= /usr/local/cuda
+NVCC ?= $(CUDA_HOME)/bin/nvcc
+export CUDA_HOME NVCC
+ifeq ($(shell uname -s),Linux)
+export PATH := $(CUDA_HOME)/bin:$(PATH)
+export LD_LIBRARY_PATH := $(CUDA_HOME)/lib64$(if $(LD_LIBRARY_PATH),:$(LD_LIBRARY_PATH))
+endif
+
 .PHONY: help doctor bootstrap-cutlass bootstrap-flash-attn cutlass-check docs docs-open examples profile matmul-profile dense-vector-profile graph-profile check
 
 CUTLASS_VERSION := v4.4.2
@@ -16,10 +24,10 @@ help: ## Show development targets.
 doctor: ## Verify the native Linux CUDA development toolchain.
 	@test "$$(uname -s)" = Linux
 	@command -v nvidia-smi >/dev/null
-	@command -v nvcc >/dev/null
+	@command -v "$(NVCC)" >/dev/null
 	@command -v rustc >/dev/null
 	@nvidia-smi --query-gpu=name,compute_cap --format=csv,noheader
-	@nvcc --version | tail -1
+	@"$(NVCC)" --version | tail -1
 	@rustc --version
 
 bootstrap-cutlass: ## Clone the pinned header-only CUTLASS dependency.
