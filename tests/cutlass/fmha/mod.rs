@@ -5,10 +5,12 @@ use mircuda::{
     bf16,
 };
 
+mod causal;
 mod head64;
 mod paged;
 mod paged_decode;
 mod paged_window;
+mod reference;
 
 const QUERY_HEADS: usize = 4;
 const KV_HEADS: usize = 2;

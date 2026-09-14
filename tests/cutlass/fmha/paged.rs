@@ -116,8 +116,30 @@ fn paged_varlen_fmha_matches_contiguous_varlen() -> mircuda::Result<()> {
         PAGE_SIZE,
         scale,
     )?;
+    let cpu = super::reference::attention(
+        &query,
+        &keys,
+        &values,
+        super::reference::ReferenceShape {
+            query_lengths,
+            context_lengths,
+            query_heads: QUERY_HEADS,
+            kv_heads: KV_HEADS,
+            head_dim: HEAD_DIM,
+            scale,
+        },
+    );
     let expected = read_device(&context, &stream, &expected)?;
     let actual = read_device(&context, &stream, &actual)?;
+    assert!(
+        maximum_error(&cpu, &actual) <= 0.001_953_125,
+        "paged attention differs from CPU"
+    );
+    assert!(
+        maximum_error(&cpu, &expected) <= 0.001_953_125,
+        "contiguous attention differs from CPU"
+    );
+
     let split_actual = read_device(&context, &stream, &split_actual)?;
     let contiguous_actual = read_device(&context, &stream, &contiguous_actual)?;
     let shuffled_error = maximum_error(&expected, &actual);
@@ -133,6 +155,8 @@ fn paged_varlen_fmha_matches_contiguous_varlen() -> mircuda::Result<()> {
 }
 
 pub(super) fn maximum_error(expected: &[bf16], actual: &[bf16]) -> f32 {
+    assert_eq!(expected.len(), actual.len());
+    assert!(expected.iter().chain(actual).all(|value| value.is_finite()));
     expected
         .iter()
         .zip(actual)

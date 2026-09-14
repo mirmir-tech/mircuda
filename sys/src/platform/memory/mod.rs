@@ -1,3 +1,4 @@
+mod device;
 mod handle;
 mod transfer;
 
@@ -93,7 +94,8 @@ impl MemoryPool {
             pointer,
             bytes,
             stream: stream.inner.clone(),
-            cross_stream: AtomicBool::new(false),
+            cross_stream: Arc::new(AtomicBool::new(false)),
+            owner: None,
         })
     }
 }
@@ -103,42 +105,8 @@ pub struct DeviceBuffer {
     pointer: sys::CUdeviceptr,
     bytes: usize,
     stream: Arc<CudaStream>,
-    cross_stream: AtomicBool,
-}
-
-impl DeviceBuffer {
-    #[must_use]
-    pub const fn bytes(&self) -> usize {
-        self.bytes
-    }
-
-    #[must_use]
-    pub fn argument(&self) -> super::compiler::KernelArgument {
-        super::compiler::KernelArgument::Pointer {
-            value: self.pointer,
-            stream: self.stream.cu_stream(),
-            context: Arc::as_ptr(self.stream.context()),
-            cross_stream: &raw const self.cross_stream,
-        }
-    }
-
-    #[must_use]
-    pub(super) const fn pointer(&self) -> sys::CUdeviceptr {
-        self.pointer
-    }
-}
-
-impl Drop for DeviceBuffer {
-    fn drop(&mut self) {
-        self.stream.context().record_err(self.stream.context().bind_to_thread());
-        if self.cross_stream.load(Ordering::Acquire) {
-            self.stream.context().record_err(self.stream.context().synchronize());
-        }
-        // SAFETY: this is the sole owner and free is ordered on the allocation stream.
-        self.stream
-            .context()
-            .record_err(unsafe { result::free_async(self.pointer, self.stream.cu_stream()) });
-    }
+    cross_stream: Arc<AtomicBool>,
+    owner: Option<Arc<Self>>,
 }
 
 #[derive(Debug)]

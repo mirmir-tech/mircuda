@@ -1,4 +1,4 @@
-use super::{DeviceBuffer, PinnedBuffer, Stream, unsupported};
+use super::{DeviceBuffer, KernelArgument, PinnedBuffer, Stream, unsupported};
 use crate::Result;
 
 impl Stream {
@@ -23,5 +23,26 @@ impl Stream {
         _bytes: usize,
     ) -> Result<()> {
         Err(unsupported())
+    }
+}
+
+impl DeviceBuffer {
+    pub const fn slice(self: &std::sync::Arc<Self>, _offset: usize, _bytes: usize) -> Result<Self> {
+        Err(unsupported())
+    }
+
+    #[must_use]
+    pub const fn is_aligned(&self, _alignment: usize) -> bool {
+        false
+    }
+
+    #[must_use]
+    pub const fn bytes(&self) -> usize {
+        0
+    }
+
+    #[must_use]
+    pub const fn argument(&self) -> KernelArgument {
+        KernelArgument::Pointer { value: 0, stream: 0 }
     }
 }

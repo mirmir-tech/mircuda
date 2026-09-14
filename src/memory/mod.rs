@@ -1,3 +1,6 @@
+mod device;
+#[cfg(all(test, target_os = "linux"))]
+mod tests;
 use std::{marker::PhantomData, sync::Arc};
 
 use crate::{Context, Error, Result, Stream};
@@ -140,42 +143,6 @@ impl MemoryPool {
         };
         Ok(DeviceBuffer {
             native: Arc::new(native),
-            len,
-            marker: PhantomData,
-        })
-    }
-}
-
-impl<T: DeviceElement> DeviceBuffer<T> {
-    /// Number of typed elements in the allocation.
-    #[must_use]
-    pub const fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Whether this allocation contains no elements. Allocations reject this state.
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
-    /// Number of allocated bytes.
-    #[must_use]
-    pub fn bytes(&self) -> usize {
-        self.native.bytes()
-    }
-
-    /// Returns a differently typed view over the same device allocation.
-    ///
-    /// The view retains the allocation and performs no transfer or conversion.
-    pub fn reinterpret<U: DeviceElement>(&self) -> Result<DeviceBuffer<U>> {
-        let element_bytes = std::mem::size_of::<U>();
-        let len = self.bytes().checked_div(element_bytes).ok_or(Error::InvalidDeviceView)?;
-        if len == 0 || len.checked_mul(element_bytes) != Some(self.bytes()) {
-            return Err(Error::InvalidDeviceView);
-        }
-        Ok(DeviceBuffer {
-            native: self.native.clone(),
             len,
             marker: PhantomData,
         })

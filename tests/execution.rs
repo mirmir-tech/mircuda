@@ -1,6 +1,8 @@
 #[cfg(target_os = "linux")]
-use mircuda::{CompileOptions, Compiler, CompilerConfig, Driver, LaunchConfig, cuda_kernel_file};
-use mircuda::{DeviceBuffer, cuda_export, cuda_ptx_file};
+use mircuda::{
+    CompileOptions, Compiler, CompilerConfig, Driver, LaunchConfig, cuda_kernel_file, cuda_ptx_file,
+};
+use mircuda::{DeviceBuffer, cuda_export};
 
 cuda_export!(
     ProbeKernel = "mircuda_probe"(

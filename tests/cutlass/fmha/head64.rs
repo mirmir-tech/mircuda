@@ -95,8 +95,30 @@ fn paged_varlen_head64_matches_contiguous_varlen() -> mircuda::Result<()> {
         &token_counts, &key_starts, &block_table, &mut softmax_lse, 2, total_query, 3, 20, 2,
         PAGE_SIZE, scale,
     )?;
+    let cpu = super::reference::attention(
+        &query,
+        &keys,
+        &values,
+        super::reference::ReferenceShape {
+            query_lengths,
+            context_lengths,
+            query_heads: QUERY_HEADS,
+            kv_heads: KV_HEADS,
+            head_dim: HEAD_DIM,
+            scale,
+        },
+    );
     let expected = read_device(&context, &stream, &expected)?;
     let actual = read_device(&context, &stream, &actual)?;
+    assert!(
+        maximum_error(&cpu, &actual) <= 0.001_953_125,
+        "paged attention differs from CPU"
+    );
+    assert!(
+        maximum_error(&cpu, &expected) <= 0.001_953_125,
+        "contiguous attention differs from CPU"
+    );
+
     let error = maximum_error(&expected, &actual);
     assert!(error <= 0.031_25, "maximum head-dim 64 BF16 difference: {error}");
     Ok(())

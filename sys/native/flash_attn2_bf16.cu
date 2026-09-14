@@ -68,7 +68,8 @@ int launch_typed(
   params.rp_dropout = 1.0F;
   params.scale_softmax_rp_dropout = scale;
   params.window_size_left = is_local ? window_size_left : -1;
-  params.window_size_right = is_local ? 0 : -1;
+  // Causal masking includes the current key; -1 excludes its diagonal.
+  params.window_size_right = is_decode ? -1 : 0;
   params.is_bf16 = true;
   params.is_causal = !is_decode && !is_local;
   params.is_seqlens_k_cumulative = true;

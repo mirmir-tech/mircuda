@@ -156,18 +156,6 @@ pub struct MemoryPoolStats {
 #[derive(Debug)]
 pub struct DeviceBuffer;
 
-impl DeviceBuffer {
-    #[must_use]
-    pub const fn bytes(&self) -> usize {
-        0
-    }
-
-    #[must_use]
-    pub const fn argument(&self) -> KernelArgument {
-        KernelArgument::Pointer { value: 0, stream: 0 }
-    }
-}
-
 #[derive(Debug)]
 pub struct PinnedBuffer;
 
