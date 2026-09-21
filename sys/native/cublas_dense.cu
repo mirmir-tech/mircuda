@@ -1,7 +1,10 @@
 #include <cublas_v2.h>
 #include <cuda_runtime_api.h>
 
+#include <mutex>
 #include <new>
+
+#include "cublas_shared.h"
 
 namespace mircuda::cublas_dense {
 
@@ -10,22 +13,19 @@ struct Plan {
   int n;
   int k;
   cudaStream_t stream;
-  cublasHandle_t handle;
+  cublas_shared::BlasLease lease;
 };
 
 void release(Plan* plan) {
   if (plan == nullptr) return;
-  if (plan->handle != nullptr) cublasDestroy(plan->handle);
+  if (plan->lease.handle != nullptr) {
+    cublas_shared::release_blas(plan->lease, plan->stream);
+  }
   delete plan;
 }
 
 int prepare(Plan* plan) {
-  cublasStatus_t status = cublasCreate(&plan->handle);
-  if (status != CUBLAS_STATUS_SUCCESS) return static_cast<int>(status);
-  status = cublasSetStream(plan->handle, plan->stream);
-  if (status != CUBLAS_STATUS_SUCCESS) return static_cast<int>(status);
-  status = cublasSetMathMode(plan->handle, CUBLAS_TENSOR_OP_MATH);
-  return static_cast<int>(status);
+  return cublas_shared::acquire_blas(plan->stream, &plan->lease);
 }
 
 }  // namespace mircuda::cublas_dense
@@ -37,7 +37,7 @@ extern "C" int mircuda_cublas_dense_create(
     return -1;
   }
   auto* plan = new (std::nothrow)
-      Plan{m, n, k, static_cast<cudaStream_t>(stream), nullptr};
+      Plan{m, n, k, static_cast<cudaStream_t>(stream), {}};
   if (plan == nullptr) return -2;
   const int status = prepare(plan);
   if (status != CUBLAS_STATUS_SUCCESS) {
@@ -58,8 +58,9 @@ extern "C" int mircuda_cublas_dense_execute(
   }
   auto* plan = static_cast<Plan*>(raw);
   if (plan->stream != static_cast<cudaStream_t>(stream)) return -1;
+  std::lock_guard<std::mutex> guard(*plan->lease.launch);
   return static_cast<int>(cublasGemmEx(
-      plan->handle, CUBLAS_OP_T, CUBLAS_OP_N, plan->n, plan->m, plan->k,
+      plan->lease.handle, CUBLAS_OP_T, CUBLAS_OP_N, plan->n, plan->m, plan->k,
       &alpha, b, CUDA_R_16BF, plan->k, a, CUDA_R_16BF, plan->k, &beta, c,
       CUDA_R_16BF, plan->n, CUBLAS_COMPUTE_32F,
       CUBLAS_GEMM_DEFAULT_TENSOR_OP));

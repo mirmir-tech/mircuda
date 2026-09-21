@@ -9,6 +9,9 @@ use crate::{
     },
 };
 
+/// Rows served by one dense launch: one sixteen-row Marlin block.
+const MAX_DENSE_TOKENS: usize = 16;
+
 unsafe extern "C" {
     fn mircuda_marlin_nvfp4_dense_execute(
         stream: *mut c_void,
@@ -89,7 +92,7 @@ fn validate(
     let temporary_elements = sms.checked_mul(16 * 256).ok_or(Error::InvalidMatmulBuffer)?;
     if spec.experts != 1
         || spec.top_k != 1
-        || spec.tokens > 8
+        || spec.tokens > MAX_DENSE_TOKENS
         || input.bytes() != spec.tokens * spec.k * size_of::<u16>()
         || weight.bytes() != matrix / 2
         || scales.bytes() != matrix / 16

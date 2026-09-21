@@ -3,9 +3,11 @@
 
 #include <new>
 
+#include "cublas_shared.h"
+
 namespace mircuda::cublaslt_dense {
 
-constexpr size_t kMaximumWorkspace = 32ULL * 1024ULL * 1024ULL;
+constexpr size_t kMaximumWorkspace = cublas_shared::kLtWorkspaceBytes;
 constexpr int kCublasStatusBase = 2000;
 
 struct Plan {
@@ -13,13 +15,12 @@ struct Plan {
   int n;
   int k;
   cudaStream_t stream;
-  cublasLtHandle_t handle;
+  cublas_shared::LtLease lease;
   cublasLtMatmulDesc_t operation;
   cublasLtMatrixLayout_t a_layout;
   cublasLtMatrixLayout_t b_layout;
   cublasLtMatrixLayout_t c_layout;
   cublasLtMatmulAlgo_t algorithm;
-  void* workspace;
   size_t workspace_bytes;
 };
 
@@ -37,20 +38,19 @@ int set_row_order(cublasLtMatrixLayout_t layout) {
 
 void release(Plan* plan) {
   if (plan == nullptr) return;
-  if (plan->workspace != nullptr) {
-    cudaFreeAsync(plan->workspace, plan->stream);
-  }
   if (plan->c_layout != nullptr) cublasLtMatrixLayoutDestroy(plan->c_layout);
   if (plan->b_layout != nullptr) cublasLtMatrixLayoutDestroy(plan->b_layout);
   if (plan->a_layout != nullptr) cublasLtMatrixLayoutDestroy(plan->a_layout);
   if (plan->operation != nullptr) cublasLtMatmulDescDestroy(plan->operation);
-  if (plan->handle != nullptr) cublasLtDestroy(plan->handle);
+  if (plan->lease.handle != nullptr) {
+    cublas_shared::release_lt(plan->lease, plan->stream);
+  }
   delete plan;
 }
 
 int prepare(Plan* plan) {
-  int status = cublas_status(cublasLtCreate(&plan->handle));
-  if (status != 0) return status;
+  int status = cublas_shared::acquire_lt(plan->stream, &plan->lease);
+  if (status != 0) return kCublasStatusBase + status;
   status = cublas_status(cublasLtMatmulDescCreate(
       &plan->operation, CUBLAS_COMPUTE_32F, CUDA_R_32F));
   if (status != 0) return status;
@@ -85,7 +85,7 @@ int prepare(Plan* plan) {
   int algorithms = 0;
   if (status == 0) {
     status = cublas_status(cublasLtMatmulAlgoGetHeuristic(
-        plan->handle, plan->operation, plan->a_layout, plan->b_layout,
+        plan->lease.handle, plan->operation, plan->a_layout, plan->b_layout,
         plan->c_layout, plan->c_layout, preference, 1, &heuristic,
         &algorithms));
   }
@@ -93,11 +93,8 @@ int prepare(Plan* plan) {
   if (status != 0) return status;
   if (algorithms != 1) return kCublasStatusBase + CUBLAS_STATUS_NOT_SUPPORTED;
   plan->algorithm = heuristic.algo;
+  // The heuristic was bounded by the size of the leased workspace.
   plan->workspace_bytes = heuristic.workspaceSize;
-  if (plan->workspace_bytes > 0) {
-    return static_cast<int>(cudaMallocAsync(
-        &plan->workspace, plan->workspace_bytes, plan->stream));
-  }
   return 0;
 }
 
@@ -111,7 +108,7 @@ extern "C" int mircuda_cublaslt_dense_create(
   }
   auto* plan = new (std::nothrow) Plan{
       m, n, k, static_cast<cudaStream_t>(stream), nullptr, nullptr,
-      nullptr, nullptr, nullptr, {}, nullptr, 0};
+      {}, nullptr, nullptr, nullptr, nullptr, {}, 0};
   if (plan == nullptr) return -2;
   const int status = prepare(plan);
   if (status != 0) {
@@ -137,9 +134,10 @@ extern "C" int mircuda_cublaslt_dense_execute(
   auto* plan = static_cast<Plan*>(raw);
   if (plan->stream != static_cast<cudaStream_t>(stream)) return -1;
   return cublas_status(cublasLtMatmul(
-      plan->handle, plan->operation, &alpha, a, plan->a_layout, b,
+      plan->lease.handle, plan->operation, &alpha, a, plan->a_layout, b,
       plan->b_layout, &beta, c, plan->c_layout, c, plan->c_layout,
-      &plan->algorithm, plan->workspace, plan->workspace_bytes, plan->stream));
+      &plan->algorithm, plan->lease.workspace, plan->workspace_bytes,
+      plan->stream));
 }
 
 extern "C" void mircuda_cublaslt_dense_destroy(void* raw) {

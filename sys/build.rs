@@ -34,6 +34,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut vendor = cc::Build::new();
         configure(&mut vendor);
         vendor
+            .file("native/cublas_shared.cu")
             .file("native/cublas_dense.cu")
             .file("native/cublaslt_dense.cu")
             .file("native/cublaslt_fp8.cu")
@@ -65,6 +66,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn rerun_sources() {
     for source in [
         "cutlass_probe.cu",
+        "cublas_shared.cu",
+        "cublas_shared.h",
         "cublas_dense.cu",
         "cublaslt_dense.cu",
         "cublaslt_fp8.cu",

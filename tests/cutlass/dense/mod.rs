@@ -7,6 +7,8 @@ use mircuda::{
 #[cfg(feature = "cublaslt")]
 use mircuda::{CublasBf16Plan, CublasBf16Spec, CublasLtBf16Plan, CublasLtBf16Spec};
 
+#[cfg(feature = "cublaslt")]
+mod shared;
 mod vector;
 
 const N: usize = 128;

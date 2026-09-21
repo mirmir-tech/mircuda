@@ -14,15 +14,24 @@ namespace mircuda_marlin_dense {
 
 using Kernel = void (*)(MIRCUDA_DENSE_PARAMS);
 
-constexpr auto nvfp4_bf16_n128_k128 = Marlin<
+constexpr auto nvfp4_bf16_block8_n128_k128 = Marlin<
     vllm::kBFloat16.id(), vllm::kFE2M1f.id(), vllm::kBFloat16.id(),
     vllm::kFE4M3fn.id(), 256, 1, 8, 8, true, 4, 1, false>;
-constexpr auto nvfp4_bf16_n128_k64 = Marlin<
+constexpr auto nvfp4_bf16_block8_n128_k64 = Marlin<
     vllm::kBFloat16.id(), vllm::kFE2M1f.id(), vllm::kBFloat16.id(),
     vllm::kFE4M3fn.id(), 128, 1, 8, 4, true, 4, 1, false>;
-constexpr auto nvfp4_bf16_n64_k128 = Marlin<
+constexpr auto nvfp4_bf16_block8_n64_k128 = Marlin<
     vllm::kBFloat16.id(), vllm::kFE2M1f.id(), vllm::kBFloat16.id(),
     vllm::kFE4M3fn.id(), 128, 1, 4, 8, true, 4, 1, false>;
+constexpr auto nvfp4_bf16_block16_n128_k128 = Marlin<
+    vllm::kBFloat16.id(), vllm::kFE2M1f.id(), vllm::kBFloat16.id(),
+    vllm::kFE4M3fn.id(), 256, 1, 8, 8, false, 4, 1, false>;
+constexpr auto nvfp4_bf16_block16_n128_k64 = Marlin<
+    vllm::kBFloat16.id(), vllm::kFE2M1f.id(), vllm::kBFloat16.id(),
+    vllm::kFE4M3fn.id(), 128, 1, 8, 4, false, 4, 1, false>;
+constexpr auto nvfp4_bf16_block16_n64_k128 = Marlin<
+    vllm::kBFloat16.id(), vllm::kFE2M1f.id(), vllm::kBFloat16.id(),
+    vllm::kFE4M3fn.id(), 128, 1, 4, 8, false, 4, 1, false>;
 
 template __global__ void Marlin<
     vllm::kBFloat16.id(), vllm::kFE2M1f.id(), vllm::kBFloat16.id(),
@@ -33,15 +42,29 @@ template __global__ void Marlin<
 template __global__ void Marlin<
     vllm::kBFloat16.id(), vllm::kFE2M1f.id(), vllm::kBFloat16.id(),
     vllm::kFE4M3fn.id(), 128, 1, 4, 8, true, 4, 1, false>(MIRCUDA_DENSE_PARAMS);
+template __global__ void Marlin<
+    vllm::kBFloat16.id(), vllm::kFE2M1f.id(), vllm::kBFloat16.id(),
+    vllm::kFE4M3fn.id(), 256, 1, 8, 8, false, 4, 1, false>(MIRCUDA_DENSE_PARAMS);
+template __global__ void Marlin<
+    vllm::kBFloat16.id(), vllm::kFE2M1f.id(), vllm::kBFloat16.id(),
+    vllm::kFE4M3fn.id(), 128, 1, 8, 4, false, 4, 1, false>(MIRCUDA_DENSE_PARAMS);
+template __global__ void Marlin<
+    vllm::kBFloat16.id(), vllm::kFE2M1f.id(), vllm::kBFloat16.id(),
+    vllm::kFE4M3fn.id(), 128, 1, 4, 8, false, 4, 1, false>(MIRCUDA_DENSE_PARAMS);
 
-Kernel select_kernel(int selection, int* threads) {
+// Row blocks of eight serve at most eight tokens; larger launches use one
+// sixteen-row block.
+Kernel select_kernel(int selection, int tokens, int* threads) {
+  const bool block8 = tokens <= 8;
   if (selection == 0) {
     *threads = 256;
-    return nvfp4_bf16_n128_k128;
+    return block8 ? nvfp4_bf16_block8_n128_k128 : nvfp4_bf16_block16_n128_k128;
   }
   *threads = 128;
-  if (selection == 1) return nvfp4_bf16_n128_k64;
-  if (selection == 2) return nvfp4_bf16_n64_k128;
+  if (selection == 1)
+    return block8 ? nvfp4_bf16_block8_n128_k64 : nvfp4_bf16_block16_n128_k64;
+  if (selection == 2)
+    return block8 ? nvfp4_bf16_block8_n64_k128 : nvfp4_bf16_block16_n64_k128;
   return nullptr;
 }
 
@@ -56,7 +79,8 @@ extern "C" int mircuda_marlin_nvfp4_dense_execute(
   int sms = 0;
   int maximum_shared = 0;
   int threads = 0;
-  auto kernel = mircuda_marlin_dense::select_kernel(thread_config, &threads);
+  auto kernel =
+      mircuda_marlin_dense::select_kernel(thread_config, tokens, &threads);
   if (kernel == nullptr) return static_cast<int>(cudaErrorInvalidValue);
   if (cudaGetDevice(&device) != cudaSuccess ||
       cudaDeviceGetAttribute(&sms, cudaDevAttrMultiProcessorCount, device) !=
