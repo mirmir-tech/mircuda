@@ -1,5 +1,6 @@
 use mircuda::bf16;
 
+#[derive(Clone, Copy)]
 pub(super) struct ReferenceShape {
     pub query_lengths: [usize; 2],
     pub context_lengths: [usize; 2],
