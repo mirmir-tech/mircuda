@@ -27,10 +27,11 @@ pub use cutlass::{
     BlockScaledMxFp8Plan, BlockScaledMxFp8Spec, BlockwiseFp8VectorPlan, BlockwiseFp8VectorSpec,
     DenseMatmulElement, DenseMatmulOutput, DenseMatmulPlan, DenseMatmulSpec, DenseVectorPlan,
     DenseVectorSpec, FmhaBf16Plan, FmhaBf16Spec, FmhaCausalWindow, IndexedGroupedFp4Plan,
-    IndexedGroupedFp4Spec, PairedVariableGroupedFp4Launch, PairedVariableGroupedFp4Plan,
-    ScaledFp8Plan, ScaledFp8Scale, ScaledFp8Spec, ScaledFp8Tile, ScaledFp8WeightScale,
-    VariableGroupedBf16Plan, VariableGroupedBf16Spec, VariableGroupedFp4Metadata,
-    VariableGroupedFp4Operands, VariableGroupedFp4Plan, VariableGroupedFp4Spec,
+    IndexedGroupedFp4Spec, PaddedAttentionElement, PaddedAttentionPlan,
+    PairedVariableGroupedFp4Launch, PairedVariableGroupedFp4Plan, ScaledFp8Plan, ScaledFp8Scale,
+    ScaledFp8Spec, ScaledFp8Tile, ScaledFp8WeightScale, VariableGroupedBf16Plan,
+    VariableGroupedBf16Spec, VariableGroupedFp4Metadata, VariableGroupedFp4Operands,
+    VariableGroupedFp4Plan, VariableGroupedFp4Spec,
 };
 pub use driver::{Context, Device, DeviceInfo, Driver, Stream};
 pub use error::{Error, Result};
@@ -57,7 +58,8 @@ pub use profile::ProfilerRange;
 #[cfg(feature = "cublaslt")]
 pub use vendor::{
     CublasBf16Plan, CublasBf16Spec, CublasDensePlan, CublasDenseSpec, CublasElement, CublasF32Plan,
-    CublasLtBf16Plan, CublasLtBf16Spec, CublasLtFp8Plan, CublasLtFp8Spec,
+    CublasGemmOffsets, CublasGemmOperand, CublasGemmPlan, CublasGemmSpec, CublasLtBf16Plan,
+    CublasLtBf16Spec, CublasLtFp8Plan, CublasLtFp8Spec,
 };
 
 /// Version of the linked CUTLASS AOT backend encoded as `major * 10000 + minor * 100 + patch`.

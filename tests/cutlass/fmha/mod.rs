@@ -7,6 +7,7 @@ use mircuda::{
 
 mod causal;
 mod head64;
+mod padded;
 mod paged;
 mod paged_decode;
 mod paged_window;

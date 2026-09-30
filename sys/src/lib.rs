@@ -10,6 +10,7 @@ pub use platform::{
     BlockScaledMxFp8Plan, BlockScaledMxFp8Spec, BlockwiseFp8VectorPlan, BlockwiseFp8VectorSpec,
     DenseMatmulDataType, DenseMatmulPlan, DenseMatmulSpec, DenseVectorPlan, DenseVectorSpec,
     FmhaBf16Plan, FmhaBf16Spec, IndexedGroupedFp4Plan, IndexedGroupedFp4Spec,
+    PaddedAttentionDataType, PaddedAttentionPlan, PaddedAttentionSpec,
     PairedVariableGroupedFp4Plan, ScaledFp8Plan, ScaledFp8ScaleType, ScaledFp8Spec, ScaledFp8Tile,
     ScaledFp8WeightScaleType, VariableGroupedBf16Plan, VariableGroupedBf16Spec,
     VariableGroupedFp4Plan, VariableGroupedFp4Spec,
@@ -21,8 +22,8 @@ pub use platform::{
 };
 #[cfg(feature = "cublaslt")]
 pub use platform::{
-    CublasDataType, CublasDensePlan, CublasDenseSpec, CublasLtBf16Plan, CublasLtBf16Spec,
-    CublasLtFp8Plan, CublasLtFp8Spec,
+    CublasDataType, CublasDensePlan, CublasDenseSpec, CublasGemmOperand, CublasGemmPlan,
+    CublasGemmSpec, CublasLtBf16Plan, CublasLtBf16Spec, CublasLtFp8Plan, CublasLtFp8Spec,
 };
 #[cfg(feature = "marlin")]
 pub use platform::{

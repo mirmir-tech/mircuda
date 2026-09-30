@@ -37,14 +37,14 @@ pub enum CublasDataType {
 }
 
 impl CublasDataType {
-    const fn native(self) -> i32 {
+    pub(super) const fn native(self) -> i32 {
         match self {
             Self::Bf16 => 0,
             Self::F32 => 1,
         }
     }
 
-    const fn bytes(self) -> usize {
+    pub(super) const fn bytes(self) -> usize {
         match self {
             Self::Bf16 => 2,
             Self::F32 => 4,

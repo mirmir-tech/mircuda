@@ -8,6 +8,8 @@ use mircuda::{
 use mircuda::{CublasBf16Plan, CublasBf16Spec, CublasLtBf16Plan, CublasLtBf16Spec};
 
 #[cfg(feature = "cublaslt")]
+mod gemm;
+#[cfg(feature = "cublaslt")]
 mod shared;
 #[cfg(feature = "cublaslt")]
 mod single;

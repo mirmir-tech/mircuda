@@ -113,3 +113,50 @@ impl CublasLtFp8Plan {
         Err(unsupported())
     }
 }
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct CublasGemmOperand {
+    pub leading: usize,
+    pub stride: usize,
+    pub transposed: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CublasGemmSpec {
+    pub m: usize,
+    pub n: usize,
+    pub k: usize,
+    pub batch: usize,
+    pub first: CublasGemmOperand,
+    pub second: CublasGemmOperand,
+    pub output_leading: usize,
+    pub output_stride: usize,
+    pub input_type: CublasDataType,
+    pub output_type: CublasDataType,
+}
+
+#[derive(Debug)]
+pub struct CublasGemmPlan;
+
+impl Context {
+    pub const fn create_cublas_gemm_plan(
+        &self,
+        _stream: &Stream,
+        _spec: CublasGemmSpec,
+    ) -> Result<CublasGemmPlan> {
+        Err(unsupported())
+    }
+}
+
+impl CublasGemmPlan {
+    pub const fn execute(
+        &mut self,
+        _stream: &Stream,
+        _buffers: (&DeviceBuffer, &DeviceBuffer, &DeviceBuffer),
+        _offsets: [usize; 3],
+        _alpha: f32,
+        _beta: f32,
+    ) -> Result<()> {
+        Err(unsupported())
+    }
+}
