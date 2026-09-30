@@ -119,7 +119,7 @@ impl<I: CublasElement, O: CublasElement> CublasGemmPlan<I, O> {
     ) -> Result<()> {
         Ok(self.native.execute(
             &stream.native,
-            (&right.native, &left.native, &output.native),
+            [&right.native, &left.native, &output.native],
             [offsets.right, offsets.left, offsets.output],
             alpha,
             beta,

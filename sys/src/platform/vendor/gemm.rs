@@ -161,11 +161,12 @@ impl Context {
 }
 
 impl CublasGemmPlan {
-    /// `offsets` are element offsets of each operand inside its buffer.
+    /// `buffers` and `offsets` list the first operand, the second and the
+    /// output; offsets count elements.
     pub fn execute(
         &mut self,
         stream: &Stream,
-        (first, second, output): (&DeviceBuffer, &DeviceBuffer, &DeviceBuffer),
+        buffers: [&DeviceBuffer; 3],
         offsets: [usize; 3],
         alpha: f32,
         beta: f32,
@@ -175,7 +176,6 @@ impl CublasGemmPlan {
         }
         let input = self.spec.input_type.bytes();
         let sizes = [input, input, self.spec.output_type.bytes()];
-        let buffers = [first, second, output];
         let mut pointers = [0_u64; 3];
         for index in 0..3 {
             ensure_stream(buffers[index], stream)?;

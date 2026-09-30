@@ -59,7 +59,7 @@ fn check_scores<I: CublasElement>(
                     })
                     .sum();
                 let got = actual[(head * LENGTH + query) * LENGTH + key];
-                let difference = (f64::from(got) - dot * f64::from(scale)).abs();
+                let difference = dot.mul_add(-f64::from(scale), f64::from(got)).abs();
                 assert!(difference < tolerance, "{head},{query},{key}: difference {difference}");
             }
         }

@@ -152,7 +152,7 @@ impl CublasGemmPlan {
     pub const fn execute(
         &mut self,
         _stream: &Stream,
-        _buffers: (&DeviceBuffer, &DeviceBuffer, &DeviceBuffer),
+        _buffers: [&DeviceBuffer; 3],
         _offsets: [usize; 3],
         _alpha: f32,
         _beta: f32,
