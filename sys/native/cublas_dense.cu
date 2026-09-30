@@ -65,15 +65,17 @@ extern "C" int mircuda_cublas_dense_execute(
   auto* plan = static_cast<Plan*>(raw);
   if (plan->stream != static_cast<cudaStream_t>(stream)) return -1;
   std::lock_guard<std::mutex> guard(*plan->lease.launch);
-  // F32 uses the pedantic compute type so the shared tensor-op math mode can
-  // never lower it to TF32.
   const bool single = plan->data_type == DataType::F32;
   const cudaDataType_t type = single ? CUDA_R_32F : CUDA_R_16BF;
-  return static_cast<int>(cublasGemmEx(
-      plan->lease.handle, CUBLAS_OP_T, CUBLAS_OP_N, plan->n, plan->m, plan->k,
-      &alpha, b, type, plan->k, a, type, plan->k, &beta, c, type, plan->n,
-      single ? CUBLAS_COMPUTE_32F_PEDANTIC : CUBLAS_COMPUTE_32F,
-      single ? CUBLAS_GEMM_DEFAULT : CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+  const auto launch = [&] {
+    return static_cast<int>(cublasGemmEx(
+        plan->lease.handle, CUBLAS_OP_T, CUBLAS_OP_N, plan->n, plan->m, plan->k,
+        &alpha, b, type, plan->k, a, type, plan->k, &beta, c, type, plan->n,
+        CUBLAS_COMPUTE_32F, single ? CUBLAS_GEMM_DEFAULT : CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+  };
+  return single ? mircuda::cublas_shared::with_math_mode(
+                      plan->lease.handle, CUBLAS_DEFAULT_MATH, launch)
+                : launch();
 }
 
 extern "C" void mircuda_cublas_dense_destroy(void* raw) {
