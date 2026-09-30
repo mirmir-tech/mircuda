@@ -1,4 +1,11 @@
-use std::{env, error::Error, path::PathBuf};
+// Build scripts talk to Cargo through stdout `cargo::` directives.
+#![allow(clippy::print_stdout)]
+
+mod sources;
+
+use std::{env, error::Error};
+
+use sources::{cuda_home, cutlass_dir, flash_attn_dir, nvcc};
 
 fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo::rerun-if-env-changed=MIRCUDA_CUTLASS_DIR");
@@ -6,12 +13,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo::rerun-if-env-changed=MIRCUDA_CUDA_ARCH");
     println!("cargo::rerun-if-env-changed=MIRCUDA_MARLIN_CUDA_ARCH");
     println!("cargo::rerun-if-env-changed=CUDA_HOME");
+    println!("cargo::rerun-if-env-changed=NVCC");
     rerun_sources();
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("linux") {
         return Ok(());
     }
-    let cuda =
-        env::var_os("CUDA_HOME").map_or_else(|| PathBuf::from("/usr/local/cuda"), PathBuf::from);
+    let cuda = cuda_home();
+    if env::var_os("NVCC").is_none() {
+        // SAFETY: the build script is single-threaded and sets this before
+        // any `cc` invocation reads it; `cc` resolves CUDA's nvcc from NVCC.
+        unsafe { env::set_var("NVCC", nvcc(&cuda)) };
+    }
     let arch = cuda_arch()?;
     let gencode = format!("-gencode=arch=compute_{arch},code=sm_{arch}");
     let marlin_arch = env::var("MIRCUDA_MARLIN_CUDA_ARCH").ok();
@@ -234,21 +246,4 @@ fn cuda_arch() -> Result<String, Box<dyn Error>> {
     } else {
         Err(format!("invalid MIRCUDA_CUDA_ARCH: {arch}").into())
     }
-}
-
-fn cutlass_dir() -> Result<PathBuf, Box<dyn Error>> {
-    if let Some(path) = env::var_os("MIRCUDA_CUTLASS_DIR") {
-        return Ok(PathBuf::from(path));
-    }
-    let home = env::var_os("HOME").ok_or("HOME is unavailable")?;
-    Ok(PathBuf::from(home).join(".cache/mircuda/cutlass-v4.4.2"))
-}
-
-fn flash_attn_dir() -> Result<PathBuf, Box<dyn Error>> {
-    if let Some(path) = env::var_os("MIRCUDA_FLASH_ATTN_DIR") {
-        return Ok(PathBuf::from(path));
-    }
-    let home = env::var_os("HOME").ok_or("HOME is unavailable")?;
-    Ok(PathBuf::from(home)
-        .join(".cache/mircuda/flash-attention-2c839c33742309ec41e620bf837495ec9926c56e"))
 }
