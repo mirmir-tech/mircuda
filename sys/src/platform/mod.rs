@@ -35,6 +35,6 @@ pub use memory::{DeviceBuffer, MemoryPool, MemoryPoolStats, PinnedBuffer};
 pub use profile::ProfilerRange;
 #[cfg(feature = "cublaslt")]
 pub use vendor::{
-    CublasBf16Plan, CublasBf16Spec, CublasLtBf16Plan, CublasLtBf16Spec, CublasLtFp8Plan,
-    CublasLtFp8Spec,
+    CublasDataType, CublasDensePlan, CublasDenseSpec, CublasLtBf16Plan, CublasLtBf16Spec,
+    CublasLtFp8Plan, CublasLtFp8Spec,
 };

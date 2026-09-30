@@ -56,8 +56,8 @@ pub use mxfp8::{MxFp8TensorCore, MxFp8TensorCoreScratch};
 pub use profile::ProfilerRange;
 #[cfg(feature = "cublaslt")]
 pub use vendor::{
-    CublasBf16Plan, CublasBf16Spec, CublasLtBf16Plan, CublasLtBf16Spec, CublasLtFp8Plan,
-    CublasLtFp8Spec,
+    CublasBf16Plan, CublasBf16Spec, CublasDensePlan, CublasDenseSpec, CublasElement, CublasF32Plan,
+    CublasLtBf16Plan, CublasLtBf16Spec, CublasLtFp8Plan, CublasLtFp8Spec,
 };
 
 /// Version of the linked CUTLASS AOT backend encoded as `major * 10000 + minor * 100 + patch`.

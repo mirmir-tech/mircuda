@@ -13,6 +13,7 @@ unsafe extern "C" {
         m: i32,
         n: i32,
         k: i32,
+        data_type: i32,
         stream: *mut c_void,
         output: *mut *mut c_void,
     ) -> i32;
@@ -28,30 +29,54 @@ unsafe extern "C" {
     fn mircuda_cublas_dense_destroy(plan: *mut c_void);
 }
 
+/// Element type of every operand of a classic cuBLAS dense plan.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CublasBf16Spec {
+pub enum CublasDataType {
+    Bf16,
+    F32,
+}
+
+impl CublasDataType {
+    const fn native(self) -> i32 {
+        match self {
+            Self::Bf16 => 0,
+            Self::F32 => 1,
+        }
+    }
+
+    const fn bytes(self) -> usize {
+        match self {
+            Self::Bf16 => 2,
+            Self::F32 => 4,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CublasDenseSpec {
     pub m: usize,
     pub n: usize,
     pub k: usize,
+    pub data_type: CublasDataType,
 }
 
 #[derive(Debug)]
-pub struct CublasBf16Plan {
+pub struct CublasDensePlan {
     raw: NonNull<c_void>,
     stream: Arc<CudaStream>,
-    spec: CublasBf16Spec,
+    spec: CublasDenseSpec,
 }
 
 // SAFETY: the plan retains its CUDA stream, binds its context before native
 // use or destruction, and execution requires exclusive mutable access.
-unsafe impl Send for CublasBf16Plan {}
+unsafe impl Send for CublasDensePlan {}
 
 impl Context {
-    pub fn create_cublas_bf16_plan(
+    pub fn create_cublas_dense_plan(
         &self,
         stream: &Stream,
-        spec: CublasBf16Spec,
-    ) -> Result<CublasBf16Plan> {
+        spec: CublasDenseSpec,
+    ) -> Result<CublasDensePlan> {
         if !Arc::ptr_eq(&self.inner, stream.inner.context()) {
             return Err(Error::ContextMismatch);
         }
@@ -63,12 +88,13 @@ impl Context {
                 i32::try_from(spec.m)?,
                 i32::try_from(spec.n)?,
                 i32::try_from(spec.k)?,
+                spec.data_type.native(),
                 stream.inner.cu_stream().cast(),
                 &raw mut raw,
             )
         };
         check(status)?;
-        Ok(CublasBf16Plan {
+        Ok(CublasDensePlan {
             raw: NonNull::new(raw).ok_or(Error::NullAllocation)?,
             stream: stream.inner.clone(),
             spec,
@@ -76,7 +102,7 @@ impl Context {
     }
 }
 
-impl CublasBf16Plan {
+impl CublasDensePlan {
     #[allow(clippy::too_many_arguments)]
     pub fn execute(
         &mut self,
@@ -95,7 +121,7 @@ impl CublasBf16Plan {
         }
         validate_sizes(self.spec, a, b, c)?;
         self.stream.context().bind_to_thread()?;
-        // SAFETY: buffers share the retained stream and satisfy the fixed BF16 shape.
+        // SAFETY: buffers share the retained stream and satisfy the fixed shape and type.
         check(unsafe {
             mircuda_cublas_dense_execute(
                 self.raw.as_ptr(),
@@ -110,7 +136,7 @@ impl CublasBf16Plan {
     }
 }
 
-impl Drop for CublasBf16Plan {
+impl Drop for CublasDensePlan {
     fn drop(&mut self) {
         self.stream.context().record_err(self.stream.context().bind_to_thread());
         // SAFETY: this is the sole owner of the native plan.
@@ -119,12 +145,12 @@ impl Drop for CublasBf16Plan {
 }
 
 fn validate_sizes(
-    spec: CublasBf16Spec,
+    spec: CublasDenseSpec,
     a: &DeviceBuffer,
     b: &DeviceBuffer,
     c: &DeviceBuffer,
 ) -> Result<()> {
-    let bytes = size_of::<u16>();
+    let bytes = spec.data_type.bytes();
     let valid = checked_bytes(spec.m, spec.k, bytes) == Some(a.bytes())
         && checked_bytes(spec.n, spec.k, bytes) == Some(b.bytes())
         && checked_bytes(spec.m, spec.n, bytes) == Some(c.bytes());

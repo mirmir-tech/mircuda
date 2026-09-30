@@ -21,8 +21,8 @@ pub use platform::{
 };
 #[cfg(feature = "cublaslt")]
 pub use platform::{
-    CublasBf16Plan, CublasBf16Spec, CublasLtBf16Plan, CublasLtBf16Spec, CublasLtFp8Plan,
-    CublasLtFp8Spec,
+    CublasDataType, CublasDensePlan, CublasDenseSpec, CublasLtBf16Plan, CublasLtBf16Spec,
+    CublasLtFp8Plan, CublasLtFp8Spec,
 };
 #[cfg(feature = "marlin")]
 pub use platform::{
