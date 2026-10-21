@@ -12,7 +12,7 @@ const WIDTH: usize = 3 * HEADS * DIM;
 fn pattern(count: usize, seed: u32) -> mircuda::Result<Vec<f32>> {
     (0..count)
         .map(|index| {
-            let step = u32::try_from(index)? * 2_654_435_761_u32.wrapping_add(seed);
+            let step = u32::try_from(index)?.wrapping_mul(2_654_435_761_u32.wrapping_add(seed));
             Ok(f32::from(u16::try_from(step % 10_007)?) / 10_007.0 - 0.5)
         })
         .collect()
