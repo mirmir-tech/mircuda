@@ -19,8 +19,10 @@ struct PaddedBatchHook {
     const int batch = int(blockIdx.z);
     query_start = int64_t(batch) * params.num_queries;
     key_start = query_start;
-    const int valid = params.seqlen_k_ptr[batch];
-    params.num_keys = valid < 1 ? 1 : (valid > params.num_queries ? params.num_queries : valid);
+    // Lengths are `u32` on the host; read them unsigned so huge values clamp high.
+    const unsigned valid = static_cast<unsigned>(params.seqlen_k_ptr[batch]);
+    const unsigned limit = static_cast<unsigned>(params.num_queries);
+    params.num_keys = valid < 1 ? 1 : int(valid > limit ? limit : valid);
     return true;
   }
 };
