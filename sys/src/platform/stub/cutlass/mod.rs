@@ -44,6 +44,7 @@ mod dense;
 mod fmha;
 mod fp4;
 mod fp8_vector;
+mod padded_attention;
 mod scaled_fp8;
 mod variable_grouped_bf16;
 
@@ -56,6 +57,7 @@ pub use fp4::{
 };
 pub use fp8_vector::{BlockwiseFp8VectorPlan, BlockwiseFp8VectorSpec};
 pub use mxfp8::{BlockScaledMxFp8Plan, BlockScaledMxFp8Spec};
+pub use padded_attention::{PaddedAttentionDataType, PaddedAttentionPlan, PaddedAttentionSpec};
 pub use scaled_fp8::{
     ScaledFp8Plan, ScaledFp8ScaleType, ScaledFp8Spec, ScaledFp8Tile, ScaledFp8WeightScaleType,
 };
