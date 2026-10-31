@@ -15,9 +15,9 @@ pub use platform::{
     VariableGroupedFp4Plan, VariableGroupedFp4Spec,
 };
 pub use platform::{
-    CaptureMode, CompileSpec, CompiledPtx, Context, DeviceBuffer, DeviceInfo, Driver, Event, Graph,
-    Kernel, KernelArgument, KernelNode, LaunchConfig, MemoryPool, MemoryPoolStats, Module,
-    PinnedBuffer, ProfilerRange, Stream, compiler_version,
+    CaptureMode, CompileSpec, CompiledCubin, CompiledPtx, Context, DeviceBuffer, DeviceInfo,
+    Driver, Event, Graph, Kernel, KernelArgument, KernelNode, LaunchConfig, MemoryPool,
+    MemoryPoolStats, Module, PinnedBuffer, ProfilerRange, Stream, compiler_version,
 };
 #[cfg(feature = "cublaslt")]
 pub use platform::{
@@ -85,6 +85,12 @@ pub enum Error {
     /// A persisted PTX image is empty or is not NUL-terminated.
     #[error("PTX image is not a NUL-terminated driver module")]
     InvalidPtx,
+    /// A compiled or persisted cubin image is not an ELF driver module.
+    #[error("cubin image is not an ELF driver module")]
+    InvalidCubin,
+    /// CUDA returned a null driver handle.
+    #[error("CUDA returned a null driver handle")]
+    NullHandle,
     /// CUDA returned a null host allocation.
     #[error("CUDA returned a null host allocation")]
     NullAllocation,

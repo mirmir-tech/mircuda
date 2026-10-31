@@ -1,10 +1,13 @@
+mod cubin;
+
 use std::{ffi::CString, sync::Arc};
 
 use cudarc::{
     driver::{CudaContext, result, sys},
-    nvrtc::{CompileOptions, compile_ptx_with_opts, sys as nvrtc_sys},
+    nvrtc::sys as nvrtc_sys,
 };
 
+pub use self::cubin::CompiledCubin;
 use super::driver::{Context, Stream};
 use crate::Result;
 
@@ -26,27 +29,16 @@ pub fn compiler_version() -> Result<(i32, i32)> {
 }
 
 impl Context {
-    pub fn compile_ptx(source: &str, spec: CompileSpec) -> Result<CompiledPtx> {
-        let mut options = spec.extra_options;
-        options.push(format!("--gpu-architecture={}", spec.architecture));
-        let ptx = compile_ptx_with_opts(
-            source,
-            CompileOptions {
-                options,
-                use_fast_math: Some(spec.fast_math),
-                maxrregcount: spec.max_registers,
-                name: Some(spec.name),
-                ..CompileOptions::default()
-            },
-        )?;
-        let image = ptx.as_bytes().ok_or(crate::Error::MissingPtx)?;
-        CompiledPtx::from_bytes(image.to_vec())
+    pub fn load_ptx(&self, image: &CompiledPtx) -> Result<Module> {
+        self.load_image(image.as_bytes())
     }
 
-    pub fn load_ptx(&self, image: &CompiledPtx) -> Result<Module> {
+    /// Loads a validated PTX or cubin image; the driver tells them apart.
+    fn load_image(&self, image: &[u8]) -> Result<Module> {
         self.inner.bind_to_thread()?;
-        // SAFETY: CompiledPtx owns a validated NUL-terminated image for this call.
-        let handle = unsafe { result::module::load_data(image.as_bytes().as_ptr().cast()) }?;
+        // SAFETY: the caller's image type validated these bytes as a complete
+        // driver module, and they outlive this call.
+        let handle = unsafe { result::module::load_data(image.as_ptr().cast()) }?;
         Ok(Module {
             inner: Arc::new(ModuleInner { handle, context: self.inner.clone() }),
         })

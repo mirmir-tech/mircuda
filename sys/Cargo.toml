@@ -12,6 +12,7 @@ default = ["cublaslt", "cutlass", "marlin"]
 cublaslt = []
 cutlass = []
 marlin = []
+foreign-interop = []
 
 [build-dependencies]
 cc = "1"

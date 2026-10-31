@@ -2,13 +2,15 @@ use crate::{Error, Result};
 
 mod compiler;
 mod graph;
+#[cfg(feature = "foreign-interop")]
+mod interop;
 #[cfg(feature = "marlin")]
 mod marlin;
 mod memory;
 mod profile;
 #[cfg(feature = "cublaslt")]
 mod vendor;
-pub use compiler::{CompileSpec, CompiledPtx, compiler_version};
+pub use compiler::{CompileSpec, CompiledCubin, CompiledPtx, compiler_version};
 pub use graph::{CaptureMode, Graph, KernelNode};
 #[cfg(feature = "marlin")]
 pub use marlin::{
