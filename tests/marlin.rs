@@ -11,6 +11,8 @@ const K: usize = 64;
 
 #[path = "marlin/padded.rs"]
 mod padded;
+#[path = "marlin/routes.rs"]
+mod routes;
 
 #[test]
 fn nvfp4_repack_matches_marlin_tile_layout() -> mircuda::Result<()> {
@@ -88,7 +90,8 @@ fn mxfp4_moe_executes_unit_projection() -> mircuda::Result<()> {
     let mut padded = pool.allocate(&stream, 1)?;
     let mut offsets = pool.allocate(&stream, 1)?;
     let mut routing_f32 = pool.allocate(&stream, TOKENS)?;
-    let mut temporary = pool.allocate(&stream, capacity * OUTPUTS)?;
+    // Eight-row route blocks reduce in 16-row tiles: twice the rows.
+    let mut temporary = pool.allocate(&stream, 2 * capacity * OUTPUTS)?;
     let mut locks = pool.allocate_zeroed(&stream, 1024)?;
     let mut output = pool.allocate_zeroed(&stream, TOKENS * OUTPUTS)?;
     let spec =

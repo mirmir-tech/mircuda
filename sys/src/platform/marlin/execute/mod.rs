@@ -132,6 +132,7 @@ impl Context {
             ],
         )?;
         validate_execution(spec, input, weight, scales, globals, routing, output)?;
+        validate_reduction(self, spec, temporary, locks)?;
         self.inner.bind_to_thread()?;
         // SAFETY: ownership and projection extents were validated above; scratch is conservatively
         // sized by the public plan and the native kernel bounds its use by the padded route count.
@@ -183,6 +184,41 @@ fn validate_execution(
         || globals.bytes() != spec.experts * size_of::<f32>()
         || routing.bytes() != assignments * size_of::<f32>()
         || output.bytes() != assignments * spec.n * size_of::<u16>()
+    {
+        return Err(Error::InvalidMatmulBuffer);
+    }
+    Ok(())
+}
+
+/// Marlin's cross-block FP32 reduction indexes `temporary` per lock in tiles
+/// of at least 16 rows, and a short buffer lets it overwrite the locks that
+/// follow, deadlocking the kernel. The bound is vLLM's: one tile per lock for
+/// `4 * sms` locks, doubled for 8-row route blocks.
+pub(super) fn validate_reduction(
+    context: &Context,
+    spec: MarlinNvFp4MoeSpec,
+    temporary: &DeviceBuffer,
+    locks: &DeviceBuffer,
+) -> Result<()> {
+    const MAX_THREAD_N: usize = 256;
+    let locks_count = usize::try_from(context.device_info()?.multiprocessor_count)?
+        .checked_mul(4)
+        .ok_or(Error::InvalidMatmulBuffer)?;
+    let block = spec.thread_config.moe_block_size();
+    let floats = padded_capacity(spec)?
+        .checked_mul(spec.n)
+        .zip(locks_count.checked_mul(block * MAX_THREAD_N))
+        .map(|(rows, tiles)| {
+            rows.min(tiles)
+                * if block == 8 {
+                    2
+                } else {
+                    1
+                }
+        })
+        .ok_or(Error::InvalidMatmulBuffer)?;
+    if temporary.bytes() < floats * size_of::<f32>()
+        || locks.bytes() < locks_count * size_of::<i32>()
     {
         return Err(Error::InvalidMatmulBuffer);
     }
