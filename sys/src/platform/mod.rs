@@ -4,6 +4,8 @@ mod cutlass;
 mod driver;
 mod event;
 mod graph;
+#[cfg(feature = "foreign-interop")]
+mod interop;
 #[cfg(feature = "marlin")]
 mod marlin;
 mod memory;
@@ -12,7 +14,8 @@ mod profile;
 mod vendor;
 
 pub use compiler::{
-    CompileSpec, CompiledPtx, Kernel, KernelArgument, LaunchConfig, Module, compiler_version,
+    CompileSpec, CompiledCubin, CompiledPtx, Kernel, KernelArgument, LaunchConfig, Module,
+    compiler_version,
 };
 #[cfg(feature = "cutlass")]
 pub use cutlass::{

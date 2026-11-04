@@ -4,6 +4,7 @@
 
 namespace mircuda::fmha {
 
+template <int QueriesPerBlock>
 struct GqaToBatchHook {
   template <typename Params>
   CUTLASS_DEVICE static bool advance_to_batch(
@@ -16,7 +17,9 @@ struct GqaToBatchHook {
       key_start = params.seqstart_k_ptr[0];
       params.num_queries = params.seqstart_q_ptr[1] - query_start;
       params.num_keys = params.seqstart_k_ptr[1] - key_start;
-      if (int(blockIdx.x) * 32 >= params.num_queries) return false;
+      if (int(blockIdx.x) * QueriesPerBlock >= params.num_queries) {
+        return false;
+      }
     }
     const int query_heads = params.q_strideM / params.head_dim;
     const int kv_heads = params.k_strideM / params.head_dim;
@@ -29,16 +32,32 @@ struct GqaToBatchHook {
   }
 };
 
+// Heads up to 128 keep the output in registers over one key tile. Wider heads
+// iterate the value dimension in 64-column tiles and accumulate the output in
+// a caller-owned FP32 buffer.
+template <int HeadDim>
+struct Tile {
+  static constexpr int kQueries = 32;
+  static constexpr int kKeys = HeadDim;
+};
+
+template <>
+struct Tile<512> {
+  static constexpr int kQueries = 64;
+  static constexpr int kKeys = 64;
+};
+
 template <int HeadDim>
 using Attention = AttentionKernel<
-    cutlass::bfloat16_t, cutlass::arch::Sm80, true, 32, HeadDim, HeadDim,
-    false, false, GqaToBatchHook>;
+    cutlass::bfloat16_t, cutlass::arch::Sm80, true, Tile<HeadDim>::kQueries,
+    Tile<HeadDim>::kKeys, HeadDim, false, false,
+    GqaToBatchHook<Tile<HeadDim>::kQueries>>;
 
 template <int HeadDim>
 int launch_typed(
     const void* query, const void* keys, const void* values, void* output,
-    int query_tokens, int context_tokens, int query_heads, int kv_heads,
-    float scale, cudaStream_t stream) {
+    float* accumulator, int query_tokens, int context_tokens, int query_heads,
+    int kv_heads, float scale, cudaStream_t stream) {
   using Kernel = Attention<HeadDim>;
   typename Kernel::Params params;
   params.query_ptr = reinterpret_cast<cutlass::bfloat16_t*>(
@@ -48,6 +67,10 @@ int launch_typed(
   params.value_ptr =
       reinterpret_cast<cutlass::bfloat16_t*>(const_cast<void*>(values));
   params.output_ptr = reinterpret_cast<cutlass::bfloat16_t*>(output);
+  if (Kernel::kNeedsOutputAccumulatorBuffer) {
+    if (accumulator == nullptr) return -1;
+    params.output_accum_ptr = accumulator;
+  }
   params.scale = scale;
   params.num_heads = query_heads;
   params.num_batches = 1;
@@ -126,15 +149,33 @@ int configure() {
 
 int launch(
     const void* query, const void* keys, const void* values, void* output,
-    int query_tokens, int context_tokens, int query_heads, int kv_heads,
-    int head_dim, float scale, cudaStream_t stream) {
-  return head_dim == 64
-      ? launch_typed<64>(
-            query, keys, values, output, query_tokens, context_tokens,
-            query_heads, kv_heads, scale, stream)
-      : launch_typed<128>(
-            query, keys, values, output, query_tokens, context_tokens,
-            query_heads, kv_heads, scale, stream);
+    float* accumulator, int query_tokens, int context_tokens, int query_heads,
+    int kv_heads, int head_dim, float scale, cudaStream_t stream) {
+  switch (head_dim) {
+    case 64:
+      return launch_typed<64>(
+          query, keys, values, output, accumulator, query_tokens,
+          context_tokens, query_heads, kv_heads, scale, stream);
+    case 128:
+      return launch_typed<128>(
+          query, keys, values, output, accumulator, query_tokens,
+          context_tokens, query_heads, kv_heads, scale, stream);
+    default:
+      return launch_typed<512>(
+          query, keys, values, output, accumulator, query_tokens,
+          context_tokens, query_heads, kv_heads, scale, stream);
+  }
+}
+
+int configure_fixed(int head_dim) {
+  switch (head_dim) {
+    case 64:
+      return configure<64>();
+    case 128:
+      return configure<128>();
+    default:
+      return configure<512>();
+  }
 }
 
 int launch_varlen(
@@ -157,22 +198,22 @@ int launch_varlen(
 
 extern "C" int mircuda_fmha_bf16_execute(
     const void* query, const void* keys, const void* values, void* output,
-    int query_tokens, int context_tokens, int query_heads, int kv_heads,
-    int head_dim, int value_head_dim, float scale, void* stream) {
+    void* accumulator, int query_tokens, int context_tokens, int query_heads,
+    int kv_heads, int head_dim, int value_head_dim, float scale,
+    void* stream) {
   using namespace mircuda::fmha;
   if (query == nullptr || keys == nullptr || values == nullptr ||
       output == nullptr || stream == nullptr || query_tokens <= 0 ||
       context_tokens < query_tokens || query_heads <= 0 || kv_heads <= 0 ||
       query_heads % kv_heads != 0 || head_dim != value_head_dim ||
-      (head_dim != 64 && head_dim != 128)) {
+      (head_dim != 64 && head_dim != 128 && head_dim != 512)) {
     return -1;
   }
-  const int configured =
-      head_dim == 64 ? configure<64>() : configure<128>();
+  const int configured = configure_fixed(head_dim);
   if (configured != 0) return configured;
   return launch(
-      query, keys, values, output, query_tokens, context_tokens, query_heads,
-      kv_heads, head_dim, scale,
+      query, keys, values, output, static_cast<float*>(accumulator),
+      query_tokens, context_tokens, query_heads, kv_heads, head_dim, scale,
       static_cast<cudaStream_t>(stream));
 }
 

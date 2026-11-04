@@ -90,11 +90,11 @@ fn loads_caches_and_launches_precompiled_ptx() -> mircuda::Result<()> {
 
 #[test]
 #[cfg(target_os = "linux")]
-fn loads_persisted_ptx_without_reinvoking_nvrtc() -> Result<(), Box<dyn std::error::Error>> {
+fn loads_persisted_cubins_without_reinvoking_nvrtc() -> Result<(), Box<dyn std::error::Error>> {
     let driver = Driver::initialize()?;
     let device = driver.devices()?.into_iter().next().ok_or(mircuda::Error::InvalidLaunch)?;
     let context = driver.create_context(device)?;
-    let directory = std::env::temp_dir().join(format!("mircuda-ptx-{}", std::process::id()));
+    let directory = std::env::temp_dir().join(format!("mircuda-cubin-{}", std::process::id()));
     let config = CompilerConfig {
         cache_directory: Some(directory.clone()),
         ..CompilerConfig::default()

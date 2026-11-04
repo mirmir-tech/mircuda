@@ -13,6 +13,10 @@ categories = ["api-bindings", "hardware-support"]
 name = "cutlass"
 path = "tests/cutlass/mod.rs"
 
+[[test]]
+name = "interop"
+required-features = ["foreign-interop"]
+
 [workspace]
 members = ["macros", "sys"]
 resolver = "3"
@@ -37,6 +41,7 @@ default = ["cublaslt", "cutlass", "marlin"]
 cublaslt = ["mircuda-sys/cublaslt"]
 cutlass = ["mircuda-sys/cutlass"]
 marlin = ["mircuda-sys/marlin"]
+foreign-interop = ["mircuda-sys/foreign-interop"]
 
 [dependencies]
 blake3.workspace = true

@@ -1,5 +1,7 @@
 mod device;
 mod handle;
+#[cfg(feature = "foreign-interop")]
+mod interop;
 mod transfer;
 
 use std::{

@@ -12,7 +12,7 @@ exposing CUDA C as the public API.
 
 - devices, retained contexts, and explicit non-blocking streams;
 - stream-ordered device memory and pinned host memory;
-- NVRTC compilation, persistent PTX caching, and typed kernel launches;
+- NVRTC compilation to device cubins, persistent cubin caching, and typed kernel launches;
 - CUDA graphs and reusable execution plans;
 - cuBLASLt and CUTLASS-backed matrix multiplication;
 - model-neutral low-precision and quantized operations;

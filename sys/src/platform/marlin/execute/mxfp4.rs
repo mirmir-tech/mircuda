@@ -58,6 +58,7 @@ impl Context {
             &[input, weight, scales, routing, sorted, expert_ids, padded, temporary, locks, output],
         )?;
         validate_execution(spec, input, weight, scales, routing, output)?;
+        super::validate_reduction(self, spec, temporary, locks)?;
         self.inner.bind_to_thread()?;
         // SAFETY: exact OCP MXFP4 matrix and route extents were validated above.
         let status = unsafe {
