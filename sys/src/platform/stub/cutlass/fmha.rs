@@ -107,6 +107,7 @@ impl FmhaBf16Plan {
         _keys: &DeviceBuffer,
         _values: &DeviceBuffer,
         _output: &DeviceBuffer,
+        _accumulator: Option<&DeviceBuffer>,
         _query_tokens: usize,
         _context_tokens: usize,
         _key_offset_bytes: usize,
