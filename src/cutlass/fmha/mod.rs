@@ -51,7 +51,7 @@ impl FmhaBf16Spec {
             || kv_heads == 0
             || !query_heads.is_multiple_of(kv_heads)
             || head_dim != value_head_dim
-            || !matches!(head_dim, 64 | 128 | 256)
+            || !matches!(head_dim, 64 | 128 | 256 | 512)
         {
             return Err(Error::InvalidMatmulShape);
         }
@@ -73,6 +73,17 @@ impl FmhaBf16Spec {
     #[must_use]
     pub const fn kv_heads(self) -> usize {
         self.kv_heads
+    }
+
+    /// FP32 elements of the output accumulator that fixed attention over
+    /// `query_tokens` needs; heads wider than 256 accumulate outside registers.
+    #[must_use]
+    pub const fn accumulator_elements(self, query_tokens: usize) -> usize {
+        if self.value_head_dim > 256 {
+            query_tokens * self.query_heads * self.value_head_dim
+        } else {
+            0
+        }
     }
 }
 
@@ -98,6 +109,12 @@ impl FmhaBf16Plan {
         Ok(Self { native, spec })
     }
 
+    /// Head geometry of this plan.
+    #[must_use]
+    pub const fn spec(&self) -> FmhaBf16Spec {
+        self.spec
+    }
+
     /// Enqueues causal attention for queries aligned to the end of the K/V context.
     #[allow(clippy::too_many_arguments)]
     pub fn execute(
@@ -112,6 +129,52 @@ impl FmhaBf16Plan {
         first_page_token: usize,
         scale: f32,
     ) -> Result<()> {
+        let pages = FixedPages { key_pages, value_pages, first_page_token };
+        self.execute_fixed(stream, query, pages, output, None, query_tokens, context_tokens, scale)
+    }
+
+    /// Enqueues [`Self::execute`] for heads that accumulate their output in an
+    /// FP32 buffer of at least [`FmhaBf16Spec::accumulator_elements`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn execute_accumulated(
+        &self,
+        stream: &Stream,
+        query: &DeviceBuffer<bf16>,
+        key_pages: &DeviceBuffer<u8>,
+        value_pages: &DeviceBuffer<u8>,
+        output: &mut DeviceBuffer<bf16>,
+        accumulator: &mut DeviceBuffer<f32>,
+        query_tokens: usize,
+        context_tokens: usize,
+        first_page_token: usize,
+        scale: f32,
+    ) -> Result<()> {
+        let pages = FixedPages { key_pages, value_pages, first_page_token };
+        self.execute_fixed(
+            stream,
+            query,
+            pages,
+            output,
+            Some(&*accumulator),
+            query_tokens,
+            context_tokens,
+            scale,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn execute_fixed(
+        &self,
+        stream: &Stream,
+        query: &DeviceBuffer<bf16>,
+        pages: FixedPages<'_>,
+        output: &DeviceBuffer<bf16>,
+        accumulator: Option<&DeviceBuffer<f32>>,
+        query_tokens: usize,
+        context_tokens: usize,
+        scale: f32,
+    ) -> Result<()> {
+        let FixedPages { key_pages, value_pages, first_page_token } = pages;
         let key_row = self.spec.kv_heads * self.spec.head_dim;
         let value_row = self.spec.kv_heads * self.spec.value_head_dim;
         let key_offset = first_page_token
@@ -128,6 +191,7 @@ impl FmhaBf16Plan {
             &key_pages.native,
             &value_pages.native,
             &output.native,
+            accumulator.map(|buffer| &*buffer.native),
             query_tokens,
             context_tokens,
             key_offset,
@@ -170,4 +234,11 @@ impl FmhaBf16Plan {
             scale,
         )?)
     }
+}
+
+#[derive(Clone, Copy)]
+struct FixedPages<'a> {
+    key_pages: &'a DeviceBuffer<u8>,
+    value_pages: &'a DeviceBuffer<u8>,
+    first_page_token: usize,
 }

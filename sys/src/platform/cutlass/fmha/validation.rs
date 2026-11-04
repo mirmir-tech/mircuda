@@ -8,6 +8,7 @@ pub(super) fn validate(
     keys: &DeviceBuffer,
     values: &DeviceBuffer,
     output: &DeviceBuffer,
+    accumulator: Option<&DeviceBuffer>,
     query_tokens: usize,
     context_tokens: usize,
     key_offset: usize,
@@ -18,7 +19,14 @@ pub(super) fn validate(
     let key_bytes = elements(context_tokens, spec.kv_heads, spec.head_dim, bf16_bytes)?;
     let value_bytes = elements(context_tokens, spec.kv_heads, spec.value_head_dim, bf16_bytes)?;
     let output_bytes = elements(query_tokens, spec.query_heads, spec.value_head_dim, bf16_bytes)?;
+    let accumulator_bytes =
+        elements(query_tokens, spec.query_heads, spec.value_head_dim, size_of::<f32>())?;
+    let accumulated = accumulator.map_or_else(
+        || !spec.accumulates_output(),
+        |buffer| spec.accumulates_output() && buffer.bytes() >= accumulator_bytes,
+    );
     let valid = query_tokens > 0
+        && accumulated
         && context_tokens >= query_tokens
         && query.bytes() == query_bytes
         && output.bytes() == output_bytes
