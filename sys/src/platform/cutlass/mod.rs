@@ -4,6 +4,7 @@ mod fp4;
 mod fp8_vector;
 mod grouped_fp4;
 mod mxfp8;
+mod padded_attention;
 mod scaled_fp8;
 mod variable_grouped_bf16;
 mod variable_grouped_fp4;
@@ -18,6 +19,7 @@ pub use fp4::{
 pub use fp8_vector::{BlockwiseFp8VectorPlan, BlockwiseFp8VectorSpec};
 pub use grouped_fp4::{IndexedGroupedFp4Plan, IndexedGroupedFp4Spec};
 pub use mxfp8::{BlockScaledMxFp8Plan, BlockScaledMxFp8Spec};
+pub use padded_attention::{PaddedAttentionDataType, PaddedAttentionPlan, PaddedAttentionSpec};
 pub use scaled_fp8::{
     ScaledFp8Plan, ScaledFp8ScaleType, ScaledFp8Spec, ScaledFp8Tile, ScaledFp8WeightScaleType,
 };

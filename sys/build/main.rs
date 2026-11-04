@@ -48,6 +48,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         vendor
             .file("native/cublas_shared.cu")
             .file("native/cublas_dense.cu")
+            .file("native/cublas_gemm.cu")
             .file("native/cublaslt_dense.cu")
             .file("native/cublaslt_fp8.cu")
             .compile("mircuda_vendor_dense");
@@ -78,9 +79,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn rerun_sources() {
     for source in [
         "cutlass_probe.cu",
+        "fmha_padded.cu",
         "cublas_shared.cu",
         "cublas_shared.h",
         "cublas_dense.cu",
+        "cublas_gemm.cu",
         "cublaslt_dense.cu",
         "cublaslt_fp8.cu",
         "dense_sm120.cu",
@@ -138,7 +141,9 @@ fn compile_cutlass(configure: &impl Fn(&mut cc::Build)) -> Result<(), Box<dyn Er
     let mut fmha = cc::Build::new();
     configure_cutlass(&mut fmha);
     fmha.include(cutlass.join("examples/41_fused_multi_head_attention"));
-    fmha.file("native/fmha_sm80.cu").compile("mircuda_cutlass_fmha");
+    fmha.file("native/fmha_sm80.cu")
+        .file("native/fmha_padded.cu")
+        .compile("mircuda_cutlass_fmha");
     compile_flash_attention(configure)?;
     let mut dense_vector = cc::Build::new();
     configure_cutlass(&mut dense_vector);

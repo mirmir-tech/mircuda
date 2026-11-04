@@ -36,4 +36,20 @@ void release_lt(const LtLease& lease, cudaStream_t stream);
 int acquire_blas(cudaStream_t stream, BlasLease* lease);
 void release_blas(const BlasLease& lease, cudaStream_t stream);
 
+// Runs `launch` with the handle in `mode` and restores the shared mode. F32
+// products run under CUBLAS_DEFAULT_MATH, which never lowers them to TF32 and,
+// unlike CUBLAS_COMPUTE_32F_PEDANTIC, keeps the fast SGEMM kernels. Callers
+// hold the lease's launch mutex.
+template <typename Launch>
+int with_math_mode(cublasHandle_t handle, cublasMath_t mode, Launch launch) {
+  cublasMath_t shared;
+  cublasStatus_t status = cublasGetMathMode(handle, &shared);
+  if (status != CUBLAS_STATUS_SUCCESS) return static_cast<int>(status);
+  status = cublasSetMathMode(handle, mode);
+  if (status != CUBLAS_STATUS_SUCCESS) return static_cast<int>(status);
+  const int launched = launch();
+  status = cublasSetMathMode(handle, shared);
+  return launched != 0 ? launched : static_cast<int>(status);
+}
+
 }  // namespace mircuda::cublas_shared

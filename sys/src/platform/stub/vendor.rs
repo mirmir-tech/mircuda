@@ -2,14 +2,21 @@ use super::{Context, DeviceBuffer, Stream, unsupported};
 use crate::Result;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CublasBf16Spec {
+pub enum CublasDataType {
+    Bf16,
+    F32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CublasDenseSpec {
     pub m: usize,
     pub n: usize,
     pub k: usize,
+    pub data_type: CublasDataType,
 }
 
 #[derive(Debug)]
-pub struct CublasBf16Plan;
+pub struct CublasDensePlan;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CublasLtBf16Spec {
@@ -32,11 +39,11 @@ pub struct CublasLtFp8Spec {
 pub struct CublasLtFp8Plan;
 
 impl Context {
-    pub const fn create_cublas_bf16_plan(
+    pub const fn create_cublas_dense_plan(
         &self,
         _stream: &Stream,
-        _spec: CublasBf16Spec,
-    ) -> Result<CublasBf16Plan> {
+        _spec: CublasDenseSpec,
+    ) -> Result<CublasDensePlan> {
         Err(unsupported())
     }
 
@@ -57,7 +64,7 @@ impl Context {
     }
 }
 
-impl CublasBf16Plan {
+impl CublasDensePlan {
     #[allow(clippy::too_many_arguments)]
     pub const fn execute(
         &mut self,
@@ -102,6 +109,53 @@ impl CublasLtFp8Plan {
         _a_scale: &DeviceBuffer,
         _b_scale: &DeviceBuffer,
         _c: &DeviceBuffer,
+    ) -> Result<()> {
+        Err(unsupported())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct CublasGemmOperand {
+    pub leading: usize,
+    pub stride: usize,
+    pub transposed: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CublasGemmSpec {
+    pub m: usize,
+    pub n: usize,
+    pub k: usize,
+    pub batch: usize,
+    pub first: CublasGemmOperand,
+    pub second: CublasGemmOperand,
+    pub output_leading: usize,
+    pub output_stride: usize,
+    pub input_type: CublasDataType,
+    pub output_type: CublasDataType,
+}
+
+#[derive(Debug)]
+pub struct CublasGemmPlan;
+
+impl Context {
+    pub const fn create_cublas_gemm_plan(
+        &self,
+        _stream: &Stream,
+        _spec: CublasGemmSpec,
+    ) -> Result<CublasGemmPlan> {
+        Err(unsupported())
+    }
+}
+
+impl CublasGemmPlan {
+    pub const fn execute(
+        &mut self,
+        _stream: &Stream,
+        _buffers: [&DeviceBuffer; 3],
+        _offsets: [usize; 3],
+        _alpha: f32,
+        _beta: f32,
     ) -> Result<()> {
         Err(unsupported())
     }
