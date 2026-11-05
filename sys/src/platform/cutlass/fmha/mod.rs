@@ -19,6 +19,7 @@ unsafe extern "C" {
         keys: *const c_void,
         values: *const c_void,
         output: *mut c_void,
+        accumulator: *mut c_void,
         query_tokens: i32,
         context_tokens: i32,
         query_heads: i32,
@@ -74,7 +75,7 @@ impl Context {
             || spec.kv_heads == 0
             || !spec.query_heads.is_multiple_of(spec.kv_heads)
             || spec.head_dim != spec.value_head_dim
-            || !matches!(spec.head_dim, 64 | 128 | 256)
+            || !matches!(spec.head_dim, 64 | 128 | 256 | 512)
         {
             return Err(Error::InvalidMatmulBuffer);
         }
@@ -83,7 +84,18 @@ impl Context {
     }
 }
 
+impl FmhaBf16Spec {
+    /// Whether the fixed kernel accumulates the output in an FP32 buffer of
+    /// one value row per query head.
+    #[must_use]
+    pub const fn accumulates_output(self) -> bool {
+        self.value_head_dim > 256
+    }
+}
+
 impl FmhaBf16Plan {
+    /// Enqueues fixed causal attention; `accumulator` is required exactly when
+    /// the spec accumulates its output.
     #[allow(clippy::too_many_arguments)]
     pub fn execute(
         &self,
@@ -92,6 +104,7 @@ impl FmhaBf16Plan {
         keys: &DeviceBuffer,
         values: &DeviceBuffer,
         output: &DeviceBuffer,
+        accumulator: Option<&DeviceBuffer>,
         query_tokens: usize,
         context_tokens: usize,
         key_offset_bytes: usize,
@@ -101,7 +114,7 @@ impl FmhaBf16Plan {
         if !Arc::ptr_eq(&self.stream, &stream.inner) {
             return Err(Error::StreamMismatch);
         }
-        for buffer in [query, keys, values, output] {
+        for buffer in [query, keys, values, output].into_iter().chain(accumulator) {
             ensure_stream(buffer, stream)?;
         }
         validate(
@@ -110,6 +123,7 @@ impl FmhaBf16Plan {
             keys,
             values,
             output,
+            accumulator,
             query_tokens,
             context_tokens,
             key_offset_bytes,
@@ -132,6 +146,7 @@ impl FmhaBf16Plan {
                 key_pointer as *const c_void,
                 value_pointer as *const c_void,
                 output.pointer() as *mut c_void,
+                accumulator.map_or(std::ptr::null_mut(), |buffer| buffer.pointer() as *mut c_void),
                 i32::try_from(query_tokens)?,
                 i32::try_from(context_tokens)?,
                 i32::try_from(self.spec.query_heads)?,

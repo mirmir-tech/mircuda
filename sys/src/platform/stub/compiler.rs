@@ -31,8 +31,29 @@ impl CompiledPtx {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompiledCubin(Vec<u8>);
+
+impl CompiledCubin {
+    pub fn from_bytes(bytes: Vec<u8>) -> Result<Self> {
+        if !bytes.starts_with(b"\x7fELF") {
+            return Err(Error::InvalidCubin);
+        }
+        Ok(Self(bytes))
+    }
+
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 impl Context {
-    pub fn compile_ptx(_source: &str, _spec: CompileSpec) -> Result<CompiledPtx> {
+    pub fn compile_cubin(_source: &str, _spec: CompileSpec) -> Result<CompiledCubin> {
+        Err(unsupported())
+    }
+
+    pub const fn load_cubin(&self, _image: &CompiledCubin) -> Result<Module> {
         Err(unsupported())
     }
 

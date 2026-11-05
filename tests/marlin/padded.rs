@@ -53,7 +53,8 @@ fn mxfp4_sequential_padded_projections_reset_workspace() -> mircuda::Result<()> 
     let mut padded = pool.allocate(&stream, 1)?;
     let mut offsets = pool.allocate(&stream, ROUTED_EXPERTS)?;
     let mut routing_f32 = pool.allocate(&stream, ROUTED)?;
-    let mut temporary = pool.allocate(&stream, capacity * PHYSICAL_N)?;
+    // Eight-row route blocks reduce in 16-row tiles: twice the rows.
+    let mut temporary = pool.allocate(&stream, 2 * capacity * PHYSICAL_N)?;
     let mut locks = pool.allocate_zeroed(&stream, 1_024)?;
 
     for (projection, physical_k) in [256, 128].into_iter().enumerate() {

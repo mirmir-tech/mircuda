@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use super::CompileOptions;
 
-const CACHE_SCHEMA: &[u8] = b"mircuda-ptx-v1";
+const CACHE_SCHEMA: &[u8] = b"mircuda-cubin-v1";
 const PRECOMPILED_SCHEMA: &[u8] = b"mircuda-precompiled-ptx-v1";
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -49,6 +49,6 @@ impl CompileKey {
     }
 
     pub(super) fn file_name(self) -> String {
-        format!("{}.ptx", blake3::Hash::from_bytes(self.0).to_hex())
+        format!("{}.cubin", blake3::Hash::from_bytes(self.0).to_hex())
     }
 }

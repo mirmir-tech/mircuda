@@ -13,12 +13,16 @@ categories = ["api-bindings", "hardware-support"]
 name = "cutlass"
 path = "tests/cutlass/mod.rs"
 
+[[test]]
+name = "interop"
+required-features = ["foreign-interop"]
+
 [workspace]
 members = ["macros", "sys"]
 resolver = "3"
 
 [workspace.package]
-version = "0.5.2"
+version = "0.5.5"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/mirmir-tech/mircuda"
@@ -37,12 +41,13 @@ default = ["cublaslt", "cutlass", "marlin"]
 cublaslt = ["mircuda-sys/cublaslt"]
 cutlass = ["mircuda-sys/cutlass"]
 marlin = ["mircuda-sys/marlin"]
+foreign-interop = ["mircuda-sys/foreign-interop"]
 
 [dependencies]
 blake3.workspace = true
 half.workspace = true
-mircuda-macros = { path = "macros", version = "0.5.2" }
-mircuda-sys = { path = "sys", version = "0.5.2", default-features = false }
+mircuda-macros = { path = "macros", version = "0.5.5" }
+mircuda-sys = { path = "sys", version = "0.5.5", default-features = false }
 parking_lot.workspace = true
 thiserror.workspace = true
 

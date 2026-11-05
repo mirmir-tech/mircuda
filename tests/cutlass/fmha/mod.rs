@@ -6,6 +6,7 @@ use mircuda::{
 };
 
 mod causal;
+mod head512;
 mod head64;
 mod padded;
 mod paged;

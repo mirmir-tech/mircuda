@@ -10,6 +10,8 @@ mod driver;
 mod error;
 mod event;
 mod graph;
+#[cfg(feature = "foreign-interop")]
+pub mod interop;
 mod launch;
 #[cfg(feature = "marlin")]
 mod marlin;

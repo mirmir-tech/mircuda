@@ -248,6 +248,23 @@ __global__ void prepare_routes(const uint32_t* selected,
     const int rank = atomicAdd(cursors + expert, 1);
     sorted[offsets[expert] + rank] = assignment;
   }
+  __syncthreads();
+  // Atomic placement leaves each expert's rows in scheduling order, and a
+  // Marlin tile's results depend on where a row sits in it. Ordering every
+  // expert's rows by assignment makes the expert outputs reproducible. The
+  // rows arrive nearly ordered, so insertion sort is close to linear.
+  for (int expert = threadIdx.x; expert < experts; expert += blockDim.x) {
+    int32_t* rows = sorted + offsets[expert];
+    for (int index = 1; index < counts[expert]; ++index) {
+      const int32_t row = rows[index];
+      int position = index - 1;
+      while (position >= 0 && rows[position] > row) {
+        rows[position + 1] = rows[position];
+        --position;
+      }
+      rows[position + 1] = row;
+    }
+  }
 }
 
 int launch_repack(void* stream, const void* left, const void* right,

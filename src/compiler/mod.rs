@@ -32,7 +32,7 @@ pub struct CompileOptions {
 pub struct CompilerConfig {
     /// CUDA toolkit or consumer header roots passed to NVRTC.
     pub include_paths: Vec<PathBuf>,
-    /// Optional persistent PTX artifact directory.
+    /// Optional persistent cubin artifact directory.
     pub cache_directory: Option<PathBuf>,
 }
 
@@ -41,7 +41,7 @@ pub struct CompilerConfig {
 pub struct CompileCacheStats {
     /// Number of lookups served without invoking NVRTC.
     pub hits: u64,
-    /// Number of hits loaded from persistent PTX artifacts.
+    /// Number of hits loaded from persistent cubin artifacts.
     pub persistent_hits: u64,
     /// Number of NVRTC compilations.
     pub misses: u64,
@@ -68,7 +68,7 @@ pub struct Compiler {
 }
 
 impl Compiler {
-    /// Creates a compiler targeting the context device's virtual architecture.
+    /// Creates a compiler targeting the context device's real architecture.
     pub fn new(context: Context) -> Result<Self> {
         Self::with_config(context, CompilerConfig::default())
     }
@@ -129,8 +129,8 @@ impl Compiler {
             self.persistent_hits.fetch_add(1, Ordering::Relaxed);
             return Ok(module);
         }
-        let image = mircuda_sys::Context::compile_ptx(&source_text, self.spec(source, options))?;
-        let native = self.context.native.load_ptx(&image)?;
+        let image = mircuda_sys::Context::compile_cubin(&source_text, self.spec(source, options))?;
+        let native = self.context.native.load_cubin(&image)?;
         self.store_persistent(key, image.as_bytes());
         let module = Module { native };
         cache.insert(key, module.clone());
@@ -177,10 +177,10 @@ impl Compiler {
                 return None;
             },
         };
-        let Ok(image) = mircuda_sys::CompiledPtx::from_bytes(bytes) else {
+        let Ok(image) = mircuda_sys::CompiledCubin::from_bytes(bytes) else {
             return self.reject_persistent(persistent, key);
         };
-        if let Ok(native) = self.context.native.load_ptx(&image) {
+        if let Ok(native) = self.context.native.load_cubin(&image) {
             return Some(Module { native });
         }
         self.reject_persistent(persistent, key)

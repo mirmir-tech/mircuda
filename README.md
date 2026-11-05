@@ -12,7 +12,7 @@ exposing CUDA C as the public API.
 
 - devices, retained contexts, and explicit non-blocking streams;
 - stream-ordered device memory and pinned host memory;
-- NVRTC compilation, persistent PTX caching, and typed kernel launches;
+- NVRTC compilation to device cubins, persistent cubin caching, and typed kernel launches;
 - CUDA graphs and reusable execution plans;
 - cuBLASLt and CUTLASS-backed matrix multiplication;
 - model-neutral low-precision and quantized operations;
@@ -22,7 +22,7 @@ exposing CUDA C as the public API.
 
 ```toml
 [dependencies]
-mircuda = "0.5.2"
+mircuda = "0.5.5"
 ```
 
 Mircuda currently targets Linux with an NVIDIA driver and CUDA Toolkit 13.x.
