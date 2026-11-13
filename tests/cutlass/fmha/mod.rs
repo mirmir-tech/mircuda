@@ -10,8 +10,6 @@ mod head512;
 mod head64;
 mod padded;
 mod paged;
-mod paged_decode;
-mod paged_window;
 mod reference;
 
 const QUERY_HEADS: usize = 4;

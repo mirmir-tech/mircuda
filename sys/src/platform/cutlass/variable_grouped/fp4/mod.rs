@@ -2,7 +2,7 @@ use std::{ffi::c_void, ptr::NonNull, sync::Arc};
 
 use cudarc::driver::CudaStream;
 
-use super::super::{
+use super::super::super::{
     driver::{Context, Stream},
     memory::{DeviceBuffer, ensure_stream},
 };

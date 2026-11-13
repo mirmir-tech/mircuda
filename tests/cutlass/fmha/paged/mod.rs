@@ -4,6 +4,9 @@ use super::{
     HEAD_DIM, KV_HEADS, QUERY_HEADS, bytes, copy_device, environment, read_device, values,
 };
 
+mod decode;
+mod window;
+
 const PAGE_SIZE: usize = 16;
 
 #[test]

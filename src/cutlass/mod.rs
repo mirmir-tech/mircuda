@@ -6,8 +6,7 @@ mod grouped_fp4;
 mod mxfp8;
 mod padded_attention;
 mod scaled_fp8;
-mod variable_grouped_bf16;
-mod variable_grouped_fp4;
+mod variable_grouped;
 mod vector;
 
 pub use dense::{DenseMatmulElement, DenseMatmulOutput, DenseMatmulPlan, DenseMatmulSpec};
@@ -22,9 +21,9 @@ pub use padded_attention::{PaddedAttentionElement, PaddedAttentionPlan};
 pub use scaled_fp8::{
     ScaledFp8Plan, ScaledFp8Scale, ScaledFp8Spec, ScaledFp8Tile, ScaledFp8WeightScale,
 };
-pub use variable_grouped_bf16::{VariableGroupedBf16Plan, VariableGroupedBf16Spec};
-pub use variable_grouped_fp4::{
-    PairedVariableGroupedFp4Launch, PairedVariableGroupedFp4Plan, VariableGroupedFp4Metadata,
-    VariableGroupedFp4Operands, VariableGroupedFp4Plan, VariableGroupedFp4Spec,
+pub use variable_grouped::{
+    PairedVariableGroupedFp4Launch, PairedVariableGroupedFp4Plan, VariableGroupedBf16Plan,
+    VariableGroupedBf16Spec, VariableGroupedFp4Metadata, VariableGroupedFp4Operands,
+    VariableGroupedFp4Plan, VariableGroupedFp4Spec,
 };
 pub use vector::{DenseVectorPlan, DenseVectorSpec};
