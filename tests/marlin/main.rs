@@ -9,9 +9,7 @@ const EXPERTS: usize = 2;
 const N: usize = 64;
 const K: usize = 64;
 
-#[path = "marlin/padded.rs"]
 mod padded;
-#[path = "marlin/routes.rs"]
 mod routes;
 
 #[test]

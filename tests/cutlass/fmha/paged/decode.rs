@@ -1,6 +1,9 @@
 use mircuda::{FmhaBf16Plan, FmhaBf16Spec, bf16};
 
-use super::{copy_device, environment, paged::maximum_error, read_device, values};
+use super::{
+    super::{copy_device, environment, read_device, values},
+    maximum_error,
+};
 
 const QUERY_HEADS: usize = 16;
 const KV_HEADS: usize = 2;
