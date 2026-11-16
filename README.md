@@ -22,7 +22,7 @@ exposing CUDA C as the public API.
 
 ```toml
 [dependencies]
-mircuda = "0.6.1"
+mircuda = "0.6.2"
 ```
 
 Mircuda currently targets Linux with an NVIDIA driver and CUDA Toolkit 13.x.
