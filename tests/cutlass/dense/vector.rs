@@ -2,17 +2,20 @@ use mircuda::{DenseMatmulPlan, DenseMatmulSpec, DenseVectorPlan, DenseVectorSpec
 
 use super::{copy_device, environment, read_device};
 
+/// Router-sized outputs take the split-input kernel (one row per block),
+/// wider ones the multi-row kernel.
 #[test]
 fn matches_tensor_core_gemm() -> mircuda::Result<()> {
-    const OUTPUTS: usize = 257;
-    const FEATURES: usize = 2_816;
-    let input = (0..FEATURES)
-        .map(|index| Ok(bf16::from_f32(f32::from(u8::try_from(index % 31)?) / 32.0 - 0.5)))
-        .collect::<mircuda::Result<Vec<_>>>()?;
-    let weight = (0..OUTPUTS * FEATURES)
-        .map(|index| Ok(bf16::from_f32(f32::from(u8::try_from(index % 17)?) / 64.0 - 0.125)))
-        .collect::<mircuda::Result<Vec<_>>>()?;
-    compare(OUTPUTS, FEATURES, &input, &weight, 0.125)
+    for (outputs, features) in [(32, 2_880), (257, 2_816), (1_031, 2_816)] {
+        let input = (0..features)
+            .map(|index| Ok(bf16::from_f32(f32::from(u8::try_from(index % 31)?) / 32.0 - 0.5)))
+            .collect::<mircuda::Result<Vec<_>>>()?;
+        let weight = (0..outputs * features)
+            .map(|index| Ok(bf16::from_f32(f32::from(u8::try_from(index % 17)?) / 64.0 - 0.125)))
+            .collect::<mircuda::Result<Vec<_>>>()?;
+        compare(outputs, features, &input, &weight, 0.125)?;
+    }
+    Ok(())
 }
 
 #[test]

@@ -2,7 +2,8 @@ use super::{FmhaBf16Plan, FmhaCausalWindow};
 use crate::{DeviceBuffer, DeviceElement, Result, Stream, bf16};
 
 impl FmhaBf16Plan {
-    /// Enqueues split-KV causal `FlashAttention` 2 over paged K/V and merges partials.
+    /// Enqueues split-KV full or sliding causal `FlashAttention` 2 over paged
+    /// K/V and merges partials.
     #[allow(clippy::too_many_arguments)]
     pub fn execute_paged_varlen_split<T: DeviceElement>(
         &self,
@@ -25,6 +26,7 @@ impl FmhaBf16Plan {
         max_context_tokens: usize,
         max_blocks: usize,
         page_block_size: usize,
+        window: FmhaCausalWindow,
         scale: f32,
     ) -> Result<()> {
         Ok(self.native.execute_paged_varlen_split(
@@ -47,6 +49,7 @@ impl FmhaBf16Plan {
             max_context_tokens,
             max_blocks,
             page_block_size,
+            window.left_tokens(),
             scale,
         )?)
     }
