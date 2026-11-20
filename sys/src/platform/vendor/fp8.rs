@@ -3,6 +3,7 @@ use std::{ffi::c_void, ptr::NonNull, sync::Arc};
 use cudarc::driver::CudaStream;
 
 use super::super::{
+    capture_gate,
     driver::{Context, Stream},
     memory::{DeviceBuffer, ensure_stream},
 };
@@ -113,9 +114,16 @@ impl CublasLtFp8Plan {
 
 impl Drop for CublasLtFp8Plan {
     fn drop(&mut self) {
-        self.stream.context().record_err(self.stream.context().bind_to_thread());
-        // SAFETY: this is the sole owner of the native plan.
-        unsafe { mircuda_cublaslt_fp8_destroy(self.raw.as_ptr()) };
+        // Releasing the last plan of a stream destroys its cuBLAS handle,
+        // which synchronizes the device: keep that out of running captures.
+        let plan = capture_gate::NativePlan::new(self.raw.as_ptr());
+        let stream = self.stream.clone();
+        capture_gate::release(move || {
+            stream.context().record_err(stream.context().bind_to_thread());
+            // SAFETY: the teardown solely owns the native plan, and `stream`
+            // outlives the stream-ordered release of its workspace.
+            unsafe { mircuda_cublaslt_fp8_destroy(plan.into_raw()) };
+        });
     }
 }
 

@@ -1,3 +1,4 @@
+mod capture_gate;
 mod compiler;
 #[cfg(feature = "cutlass")]
 mod cutlass;

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use cudarc::driver::{CudaStream, result, sys};
 
 use super::{
+    capture_gate,
     compiler::{Kernel, KernelArgument, LaunchConfig},
     driver::Stream,
 };
@@ -53,11 +54,19 @@ impl std::fmt::Debug for Graph {
 }
 
 impl Stream {
+    /// Begins capture holding the capture gate; [`Self::end_capture`] must
+    /// follow on this thread after a successful begin.
     pub fn begin_capture(&self, mode: CaptureMode) -> Result<()> {
-        Ok(self.inner.begin_capture(mode.native())?)
+        capture_gate::enter();
+        let begun = self.inner.begin_capture(mode.native());
+        if begun.is_err() {
+            capture_gate::leave();
+        }
+        Ok(begun?)
     }
 
     pub fn end_capture(&self) -> Result<Graph> {
+        let _leave = capture_gate::Leave;
         self.inner.context().bind_to_thread()?;
         // SAFETY: capture is active on this live stream.
         let raw = unsafe { result::stream::end_capture(self.inner.cu_stream())? };
