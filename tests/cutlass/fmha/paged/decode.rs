@@ -1,4 +1,6 @@
-use mircuda::{FmhaBf16Plan, FmhaBf16Spec, bf16};
+use std::num::NonZeroUsize;
+
+use mircuda::{FmhaBf16Plan, FmhaBf16Spec, FmhaCausalWindow, bf16};
 
 use super::{
     super::{copy_device, environment, read_device, values},
@@ -37,11 +39,47 @@ fn paged_head256_decode_matches_reference() -> mircuda::Result<()> {
         &stream, &query_device, &key_pages, &value_pages, &mut actual, &query_starts,
         &token_counts, &context_starts, &block_table, &mut lse, 2, 2, 1, 20, 2, PAGE_SIZE, scale,
     )?;
-    let expected = reference(&query, &keys, &value, lengths, scale);
+    let expected = reference(&query, &keys, &value, lengths, scale, None);
     let actual = read_device(&context, &stream, &actual)?;
     let error = maximum_error(&expected, &actual);
     assert!(error <= 0.031_25, "maximum head-dim 256 BF16 difference: {error}");
-    for splits in [2, 4, 8, 16, 32] {
+    // A five-token window: the first sequence sees tokens 12..17, the second
+    // 15..20, so both windows cross a page.
+    let window =
+        FmhaCausalWindow::Sliding(NonZeroUsize::new(5).ok_or(mircuda::Error::InvalidLaunch)?);
+    let windowed = reference(&query, &keys, &value, lengths, scale, Some(5));
+    let mut windowed_output = pool.allocate_zeroed::<bf16>(&stream, query.len())?;
+    plan.execute_paged_varlen_windowed(
+        &stream,
+        &query_device,
+        &key_pages,
+        &value_pages,
+        &mut windowed_output,
+        &query_starts,
+        &token_counts,
+        &context_starts,
+        &block_table,
+        &mut lse,
+        2,
+        2,
+        1,
+        20,
+        2,
+        PAGE_SIZE,
+        window,
+        scale,
+    )?;
+    let error = maximum_error(&windowed, &read_device(&context, &stream, &windowed_output)?);
+    assert!(error <= 0.031_25, "maximum windowed BF16 difference: {error}");
+    for (splits, window) in [2, 4, 8, 16, 32]
+        .into_iter()
+        .flat_map(|splits| [(splits, FmhaCausalWindow::Full), (splits, window)])
+    {
+        let expected = if window == FmhaCausalWindow::Full {
+            &expected
+        } else {
+            &windowed
+        };
         let mut split_output = pool.allocate_zeroed::<bf16>(&stream, query.len())?;
         let mut split_lse = pool.allocate_zeroed::<f32>(&stream, 2 * QUERY_HEADS)?;
         let mut output_accum = pool.allocate_zeroed::<f32>(&stream, splits * query.len())?;
@@ -66,11 +104,12 @@ fn paged_head256_decode_matches_reference() -> mircuda::Result<()> {
             20,
             2,
             PAGE_SIZE,
+            window,
             scale,
         )?;
         let split_output = read_device(&context, &stream, &split_output)?;
-        let error = maximum_error(&expected, &split_output);
-        assert!(error <= 0.031_25, "maximum {splits}-split BF16 difference: {error}");
+        let error = maximum_error(expected, &split_output);
+        assert!(error <= 0.031_25, "maximum {splits}-split {window:?} BF16 difference: {error}");
     }
     Ok(())
 }
@@ -81,6 +120,7 @@ fn reference(
     values: &[bf16],
     lengths: [usize; 2],
     scale: f32,
+    window: Option<usize>,
 ) -> Vec<bf16> {
     let mut output = Vec::with_capacity(query.len());
     let mut context_start = 0;
@@ -88,16 +128,16 @@ fn reference(
         for query_head in 0..QUERY_HEADS {
             let kv_head = query_head / (QUERY_HEADS / KV_HEADS);
             let query_start = (batch * QUERY_HEADS + query_head) * HEAD_DIM;
-            let mut scores = Vec::with_capacity(length);
-            for token in 0..length {
+            let first = window.map_or(0, |window| length.saturating_sub(window));
+            let mut scores = vec![f32::NEG_INFINITY; length];
+            for (token, score) in scores.iter_mut().enumerate().skip(first) {
                 let key_start = ((context_start + token) * KV_HEADS + kv_head) * HEAD_DIM;
-                let score = (0..HEAD_DIM)
+                *score = (0..HEAD_DIM)
                     .map(|item| {
                         query[query_start + item].to_f32() * keys[key_start + item].to_f32()
                     })
                     .sum::<f32>()
                     * scale;
-                scores.push(score);
             }
             let maximum = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
             let denominator = scores.iter().map(|score| (score - maximum).exp()).sum::<f32>();

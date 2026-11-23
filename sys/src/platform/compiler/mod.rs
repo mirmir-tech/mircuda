@@ -139,7 +139,7 @@ impl Kernel {
             if let KernelArgument::Pointer {
                 stream: allocation_stream,
                 context: allocation_context,
-                cross_stream,
+                foreign,
                 ..
             } = argument
             {
@@ -148,7 +148,7 @@ impl Kernel {
                 }
                 if *allocation_stream != stream_handle {
                     // SAFETY: generated KernelArguments retain the DeviceBuffer borrow.
-                    unsafe { &**cross_stream }.store(true, std::sync::atomic::Ordering::Release);
+                    unsafe { &**foreign }.record(&stream.inner);
                 }
             }
         }
@@ -191,7 +191,7 @@ pub enum KernelArgument {
         value: sys::CUdeviceptr,
         stream: sys::CUstream,
         context: *const CudaContext,
-        cross_stream: *const std::sync::atomic::AtomicBool,
+        foreign: *const super::memory::ForeignStreams,
     },
     U8(u8),
     I8(i8),

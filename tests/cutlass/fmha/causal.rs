@@ -73,3 +73,53 @@ fn causal_paged_prefill_includes_its_diagonal_for_all_head_sizes() -> mircuda::R
     }
     Ok(())
 }
+
+/// A one-query block (a decode step, or the last row of a prefill whose
+/// length is one past a whole query tile) must attend every head over its
+/// own key head: grouped, one key head per query head, and multi-query.
+#[test]
+fn fixed_attention_attends_lone_query_rows_over_their_key_heads() -> mircuda::Result<()> {
+    const QUERY_HEADS: usize = 12;
+    let (context, stream, pool) = environment()?;
+    let bytes = |values: &[bf16]| {
+        values
+            .iter()
+            .flat_map(|value| value.to_bits().to_le_bytes())
+            .collect::<Vec<u8>>()
+    };
+    for kv_heads in [2_usize, QUERY_HEADS, 1] {
+        for head_dim in [64, 128] {
+            for (queries, keys) in [(33_usize, 40_usize), (1, 9)] {
+                let query = values(queries, QUERY_HEADS, head_dim, 17);
+                let key = values(keys, kv_heads, head_dim, 23);
+                let value = values(keys, kv_heads, head_dim, 31);
+                let q = copy_device(&context, &stream, &pool, &query)?;
+                let k = copy_device(&context, &stream, &pool, &bytes(&key))?;
+                let v = copy_device(&context, &stream, &pool, &bytes(&value))?;
+                let mut output = pool.allocate_zeroed::<bf16>(&stream, query.len())?;
+                let plan = FmhaBf16Plan::new(
+                    &context,
+                    &stream,
+                    FmhaBf16Spec::new(QUERY_HEADS, kv_heads, head_dim, head_dim)?,
+                )?;
+                let scale = f32::from(u16::try_from(head_dim)?).sqrt().recip();
+                plan.execute(&stream, &q, &k, &v, &mut output, queries, keys, 0, scale)?;
+                let shape = ReferenceShape {
+                    query_lengths: [queries, 0],
+                    context_lengths: [keys, 0],
+                    query_heads: QUERY_HEADS,
+                    kv_heads,
+                    head_dim,
+                    scale,
+                };
+                let expected = attention(&query, &key, &value, shape);
+                let error = maximum_error(&expected, &read_device(&context, &stream, &output)?);
+                assert!(
+                    error <= 0.001_953_125,
+                    "kv_heads={kv_heads} head={head_dim} queries={queries} error={error}"
+                );
+            }
+        }
+    }
+    Ok(())
+}
