@@ -1,4 +1,4 @@
-use std::sync::{Arc, atomic::Ordering};
+use std::sync::Arc;
 
 use cudarc::driver::{result, sys};
 
@@ -22,7 +22,7 @@ impl DeviceBuffer {
             pointer,
             bytes,
             stream: self.stream.clone(),
-            cross_stream: self.cross_stream.clone(),
+            foreign: self.foreign.clone(),
             owner: Some(self.owner.as_ref().unwrap_or(self).clone()),
         })
     }
@@ -39,7 +39,7 @@ impl DeviceBuffer {
             value: self.pointer,
             stream: self.stream.cu_stream(),
             context: Arc::as_ptr(self.stream.context()),
-            cross_stream: Arc::as_ptr(&self.cross_stream),
+            foreign: Arc::as_ptr(&self.foreign),
         }
     }
 
@@ -54,11 +54,16 @@ impl Drop for DeviceBuffer {
         if self.owner.is_some() {
             return;
         }
-        self.stream.context().record_err(self.stream.context().bind_to_thread());
-        if self.cross_stream.load(Ordering::Acquire) {
-            self.stream.context().record_err(self.stream.context().synchronize());
+        let context = self.stream.context();
+        context.record_err(context.bind_to_thread());
+        if let Err(error) = self.foreign.order_before(&self.stream) {
+            // Without the stream ordering the free could overtake foreign
+            // work; fall back to waiting for the whole context.
+            context.record_err::<()>(Err(error));
+            context.record_err(context.synchronize());
         }
-        // SAFETY: this is the sole owner and free is ordered on the allocation stream.
+        // SAFETY: this is the sole owner and free is ordered on the allocation
+        // stream after the work queued on every foreign stream.
         self.stream
             .context()
             .record_err(unsafe { result::free_async(self.pointer, self.stream.cu_stream()) });

@@ -45,6 +45,7 @@ impl FmhaBf16Plan {
         _max_context_tokens: usize,
         _max_blocks: usize,
         _page_block_size: usize,
+        _window_size_left: Option<usize>,
         _scale: f32,
     ) -> Result<()> {
         Err(unsupported())

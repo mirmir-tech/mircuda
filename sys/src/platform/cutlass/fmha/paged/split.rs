@@ -58,6 +58,7 @@ impl FmhaBf16Plan {
         max_context_tokens: usize,
         max_blocks: usize,
         page_block_size: usize,
+        window_size_left: Option<usize>,
         scale: f32,
     ) -> Result<()> {
         validate(
@@ -118,7 +119,7 @@ impl FmhaBf16Plan {
                 i32::try_from(self.spec.query_heads)?,
                 i32::try_from(self.spec.kv_heads)?,
                 i32::try_from(self.spec.head_dim)?,
-                -1,
+                window_size_left.map_or(Ok(-1), i32::try_from)?,
                 scale,
                 stream.inner.cu_stream().cast(),
             )

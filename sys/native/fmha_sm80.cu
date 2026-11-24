@@ -23,11 +23,23 @@ struct GqaToBatchHook {
     }
     const int query_heads = params.q_strideM / params.head_dim;
     const int kv_heads = params.k_strideM / params.head_dim;
-    const int kv_head = int(blockIdx.y) / (query_heads / kv_heads);
-    params.key_ptr += kv_head * params.head_dim;
-    params.value_ptr += kv_head * params.head_dim_value;
-    params.k_strideH = 0;
-    params.v_strideH = 0;
+    const int head = int(blockIdx.y);
+    const int kv_head = head / (query_heads / kv_heads);
+    if (kv_heads == 1) {
+      // Multi-query attention: zero head strides let the kernel attend a
+      // lone query of every head in one block, which is right when all
+      // heads share the one key head.
+      params.k_strideH = 0;
+      params.v_strideH = 0;
+      return true;
+    }
+    // The kernel advances by `head * strideH` after this hook. Keeping the
+    // strides and moving back by the head's offset lands on its key head,
+    // and nonzero strides keep the kernel off that multi-query shortcut,
+    // which would attend every head of a one-query block (a decode step,
+    // or the last row of a prefill) over the first head's keys.
+    params.key_ptr += int64_t(kv_head - head) * params.k_strideH;
+    params.value_ptr += int64_t(kv_head - head) * params.v_strideH;
     return true;
   }
 };

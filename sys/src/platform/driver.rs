@@ -18,7 +18,14 @@ impl Driver {
     }
 
     pub fn create_context(&self, ordinal: usize) -> Result<Context> {
-        Ok(Context { inner: CudaContext::new(ordinal)? })
+        let inner = CudaContext::new(ordinal)?;
+        // SAFETY: event tracking only orders cudarc's own `CudaSlice` views,
+        // which mircuda never creates: device buffers record their foreign
+        // streams and order their frees explicitly. Left on, cudarc would
+        // synchronize the shared primary context when the first stream is
+        // created, invalidating stream captures on other threads.
+        unsafe { inner.disable_event_tracking() };
+        Ok(Context { inner })
     }
 }
 

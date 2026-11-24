@@ -117,6 +117,7 @@ fn paged_varlen_fmha_matches_contiguous_varlen() -> mircuda::Result<()> {
         context_lengths[0],
         2,
         PAGE_SIZE,
+        mircuda::FmhaCausalWindow::Full,
         scale,
     )?;
     let cpu = super::reference::attention(

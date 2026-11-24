@@ -19,8 +19,11 @@ int launch_typed(
     int max_blocks, int page_block_size, int query_heads, int kv_heads,
     int window_size_left, float scale, cudaStream_t stream) {
   const bool is_decode = max_query_tokens == 1;
-  const bool is_local = !is_decode && window_size_left >= 0;
-  const bool transpose_gqa = is_decode && query_heads > kv_heads;
+  const bool is_local = window_size_left >= 0;
+  // Swapping query groups into the sequence axis shares K/V loads across a
+  // group, but its rows would then sit at different query positions for a
+  // window mask, so windowed decode keeps one query row per head.
+  const bool transpose_gqa = is_decode && !is_local && query_heads > kv_heads;
   const int query_groups = query_heads / kv_heads;
   const int effective_query_tokens = transpose_gqa ? query_groups : max_query_tokens;
   const int effective_query_heads = transpose_gqa ? kv_heads : query_heads;
@@ -68,8 +71,9 @@ int launch_typed(
   params.rp_dropout = 1.0F;
   params.scale_softmax_rp_dropout = scale;
   params.window_size_left = is_local ? window_size_left : -1;
-  // Causal masking includes the current key; -1 excludes its diagonal.
-  params.window_size_right = is_decode ? -1 : 0;
+  // Causal masking includes the current key; -1 excludes its diagonal. Full
+  // decode needs no mask; a window keeps the current key (right bound 0).
+  params.window_size_right = is_decode && !is_local ? -1 : 0;
   params.is_bf16 = true;
   params.is_causal = !is_decode && !is_local;
   params.is_seqlens_k_cumulative = true;

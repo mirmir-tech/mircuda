@@ -131,9 +131,63 @@ __global__ void kernel(const Element* input, const Element* weight,
   }
 }
 
+// Few output rows (routers: 32 or 128) would leave all but a few SMs idle
+// and walk the whole input serially, so each block takes one row and its
+// warps split the input columns.
+constexpr int kSplitRowsLimit = 512;
+
+template <typename Element>
+__global__ void split_kernel(const Element* input, const Element* weight,
+                             Element* output, int n, int k, float alpha,
+                             float beta) {
+  const int lane = threadIdx.x & 31;
+  const int warp = threadIdx.x >> 5;
+  const int row = blockIdx.x;
+  if (row >= n) return;
+  const uint4* in = reinterpret_cast<const uint4*>(input);
+  const uint4* weights = reinterpret_cast<const uint4*>(weight + static_cast<long long>(row) * k);
+  const int vectors = k / 8;
+  float sum = 0.0f;
+  for (int vector = threadIdx.x; vector < vectors; vector += kWarps * 32) {
+    const uint4 input_bits = in[vector];
+    const uint4 weight_bits = weights[vector];
+    const unsigned int inputs[4] = {input_bits.x, input_bits.y, input_bits.z, input_bits.w};
+    const unsigned int values[4] = {weight_bits.x, weight_bits.y, weight_bits.z, weight_bits.w};
+#pragma unroll
+    for (int pair = 0; pair < 4; ++pair) {
+      const float2 x = Convert<Element>::pair_bits_to_float(inputs[pair]);
+      const float2 w = Convert<Element>::pair_bits_to_float(values[pair]);
+      sum = fmaf(x.x, w.x, sum);
+      sum = fmaf(x.y, w.y, sum);
+    }
+  }
+  for (int offset = 16; offset > 0; offset >>= 1) {
+    sum += __shfl_down_sync(0xffffffffu, sum, offset);
+  }
+  __shared__ float warps[kWarps];
+  if (lane == 0) warps[warp] = sum;
+  __syncthreads();
+  if (threadIdx.x == 0) {
+    float total = 0.0f;
+#pragma unroll
+    for (int item = 0; item < kWarps; ++item) total += warps[item];
+    float result = alpha * total;
+    if (beta != 0.0f) {
+      result = fmaf(beta, Convert<Element>::to_float(output[row]), result);
+    }
+    output[row] = Convert<Element>::from_float(result);
+  }
+}
+
 template <typename Element>
 int launch(Plan* plan, const void* input, const void* weight, void* output,
            float alpha, float beta) {
+  if (plan->n <= kSplitRowsLimit && (plan->k & 7) == 0) {
+    split_kernel<<<plan->n, kWarps * 32, 0, plan->stream>>>(
+        static_cast<const Element*>(input), static_cast<const Element*>(weight),
+        static_cast<Element*>(output), plan->n, plan->k, alpha, beta);
+    return static_cast<int>(cudaPeekAtLastError());
+  }
   const int blocks = (plan->n + kRowsPerBlock - 1) / kRowsPerBlock;
   kernel<<<blocks, kWarps * 32, 0, plan->stream>>>(
       static_cast<const Element*>(input), static_cast<const Element*>(weight),
