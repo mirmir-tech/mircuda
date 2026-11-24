@@ -109,6 +109,8 @@ impl Stream {
 
 /// Captures in progress and the teardown deferred until they end, across
 /// the process.
+// Not part of the supported API: exists for tests and diagnostics.
+#[doc(hidden)]
 #[must_use]
 pub fn capture_activity() -> CaptureActivity {
     let activity = mircuda_sys::capture_activity();
@@ -120,6 +122,8 @@ pub fn capture_activity() -> CaptureActivity {
 
 /// Stream captures in progress and the device-synchronizing teardown
 /// deferred until the last of them ends.
+// Not part of the supported API: exists for tests and diagnostics.
+#[doc(hidden)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct CaptureActivity {
     /// Threads with a capture in progress.

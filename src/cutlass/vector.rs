@@ -1,9 +1,14 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, num::NonZeroU16};
 
 pub use mircuda_sys::DenseVectorKernel;
 
 use super::DenseMatmulElement;
 use crate::{Context, DeviceBuffer, Error, Result, Stream};
+
+/// Largest output count that defaults to [`DenseVectorKernel::BlockPerRow`].
+const BLOCK_PER_ROW_DEFAULT_OUTPUTS: usize = 512;
+/// Waves of one block per SM that a split-K grid aims to fill.
+const SPLIT_K_TARGET_WAVES: u32 = 2;
 
 /// Fixed geometry and kernel for
 /// `output[N] = alpha * weight[N,K] * input[K] + beta * output[N]`.
@@ -16,7 +21,10 @@ pub struct DenseVectorSpec {
 
 impl DenseVectorSpec {
     /// Creates a validated row-major matrix-vector shape with the default
-    /// kernel: [`DenseVectorKernel::BlockPerRow`] when `k` admits it.
+    /// kernel: [`DenseVectorKernel::BlockPerRow`] for router-sized outputs
+    /// (`n <= 512`) when `k` admits it, otherwise
+    /// [`DenseVectorKernel::RowGroups`]. Tuners choose other kernels through
+    /// [`Self::with_kernel`].
     pub fn new(n: usize, k: usize) -> Result<Self> {
         if n == 0 || k == 0 {
             return Err(Error::InvalidMatmulShape);
@@ -25,7 +33,9 @@ impl DenseVectorSpec {
             let _ = i32::try_from(value)?;
         }
         let _ = n.checked_mul(k).ok_or(Error::InvalidMatmulShape)?;
-        let kernel = if Self::admits(k, DenseVectorKernel::BlockPerRow) {
+        let kernel = if n <= BLOCK_PER_ROW_DEFAULT_OUTPUTS
+            && Self::admits(n, k, DenseVectorKernel::BlockPerRow)
+        {
             DenseVectorKernel::BlockPerRow
         } else {
             DenseVectorKernel::RowGroups
@@ -34,12 +44,40 @@ impl DenseVectorSpec {
     }
 
     /// Selects another kernel for the same shape, as a tuner measures them.
+    ///
+    /// [`DenseVectorKernel::BlockPerRow`] needs `k % 8 == 0`;
+    /// [`DenseVectorKernel::SplitK`] also needs `splits <= k / 8` and an
+    /// `n * splits` grid that CUDA can launch.
     pub const fn with_kernel(self, kernel: DenseVectorKernel) -> Result<Self> {
-        if Self::admits(self.k, kernel) {
+        if Self::admits(self.n, self.k, kernel) {
             Ok(Self { kernel, ..self })
         } else {
-            Err(Error::InvalidMatmulShape)
+            Err(Error::VectorKernelShape { kernel, n: self.n, k: self.k })
         }
+    }
+
+    /// Split-K kernels worth measuring for this shape on a device with
+    /// `multiprocessors` SMs, each when the shape admits it: the slice count
+    /// whose `n * splits` grid first fills two waves of one block per SM and
+    /// its doubled neighbour. Outputs that fill two waves on their own (such
+    /// as `n >= 96` on 48 SMs) measure only two slices, which halves each
+    /// block's pass over a row.
+    #[must_use]
+    pub fn split_k_candidates(self, multiprocessors: u32) -> Vec<DenseVectorKernel> {
+        let blocks = u64::from(multiprocessors) * u64::from(SPLIT_K_TARGET_WAVES);
+        let target = blocks.div_ceil(self.n as u64);
+        let splits = if target > 1 {
+            [Some(target), Some(target * 2)]
+        } else {
+            [Some(2), None]
+        };
+        splits
+            .into_iter()
+            .flatten()
+            .filter_map(|splits| u16::try_from(splits).ok().and_then(NonZeroU16::new))
+            .map(|splits| DenseVectorKernel::SplitK { splits })
+            .filter(|kernel| Self::admits(self.n, self.k, *kernel))
+            .collect()
     }
 
     /// Kernel that executes this shape.
@@ -48,10 +86,16 @@ impl DenseVectorSpec {
         self.kernel
     }
 
-    const fn admits(k: usize, kernel: DenseVectorKernel) -> bool {
+    const fn admits(n: usize, k: usize, kernel: DenseVectorKernel) -> bool {
         match kernel {
             DenseVectorKernel::RowGroups => true,
             DenseVectorKernel::BlockPerRow => k.is_multiple_of(8),
+            DenseVectorKernel::SplitK { splits } => {
+                let splits = splits.get() as usize;
+                k.is_multiple_of(8)
+                    && splits <= k / 8
+                    && matches!(n.checked_mul(splits), Some(blocks) if blocks <= i32::MAX as usize)
+            },
         }
     }
 
@@ -68,7 +112,8 @@ impl DenseVectorSpec {
     }
 }
 
-/// Stream-bound native matrix-vector plan without persistent workspace.
+/// Stream-bound native matrix-vector plan; split-K kernels retain a small
+/// FP32 workspace allocated with the plan, so launches stay capture-safe.
 #[derive(Debug)]
 pub struct DenseVectorPlan<T: DenseMatmulElement> {
     native: mircuda_sys::DenseVectorPlan,
@@ -90,6 +135,13 @@ impl<T: DenseMatmulElement> DenseVectorPlan<T> {
             spec,
             marker: PhantomData,
         })
+    }
+
+    /// Plan-owned workspace bytes; nonzero only for split-K kernels.
+    #[must_use]
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn workspace_bytes(&self) -> usize {
+        self.native.workspace_bytes()
     }
 
     /// Returns the immutable plan geometry.

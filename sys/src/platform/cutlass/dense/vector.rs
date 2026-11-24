@@ -1,4 +1,4 @@
-use std::{ffi::c_void, ptr::NonNull, sync::Arc};
+use std::{ffi::c_void, num::NonZeroU16, ptr::NonNull, sync::Arc};
 
 use cudarc::driver::CudaStream;
 
@@ -17,9 +17,11 @@ unsafe extern "C" {
         n: i32,
         k: i32,
         kernel: i32,
+        splits: i32,
         stream: *mut c_void,
         output: *mut *mut c_void,
     ) -> i32;
+    fn mircuda_dense_vector_workspace_bytes(plan: *const c_void) -> usize;
     fn mircuda_dense_vector_execute(
         plan: *mut c_void,
         stream: *mut c_void,
@@ -39,6 +41,13 @@ pub enum DenseVectorKernel {
     RowGroups,
     /// Each block reduces one row, its warps splitting the input; `k % 8 == 0`.
     BlockPerRow,
+    /// `splits` blocks per row each reduce a balanced slice of the input into
+    /// an FP32 partial in plan-owned workspace; the last block of a row sums
+    /// the partials in slice order. `k % 8 == 0` and `splits <= k / 8`.
+    SplitK {
+        /// Input slices per output row.
+        splits: NonZeroU16,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -50,10 +59,12 @@ pub struct DenseVectorSpec {
 }
 
 impl DenseVectorKernel {
-    const fn native(self) -> i32 {
+    /// Native kernel code and input slices per row.
+    const fn native(self) -> (i32, i32) {
         match self {
-            Self::RowGroups => 0,
-            Self::BlockPerRow => 1,
+            Self::RowGroups => (0, 1),
+            Self::BlockPerRow => (1, 1),
+            Self::SplitK { splits } => (2, splits.get() as i32),
         }
     }
 }
@@ -80,13 +91,15 @@ impl Context {
         }
         self.inner.bind_to_thread()?;
         let mut raw = std::ptr::null_mut();
+        let (kernel, splits) = spec.kernel.native();
         // SAFETY: output is writable and dimensions are checked by the safe caller.
         let status = unsafe {
             mircuda_dense_vector_create(
                 spec.data_type.native(),
                 i32::try_from(spec.n)?,
                 i32::try_from(spec.k)?,
-                spec.kernel.native(),
+                kernel,
+                splits,
                 stream.inner.cu_stream().cast(),
                 &raw mut raw,
             )
@@ -101,6 +114,13 @@ impl Context {
 }
 
 impl DenseVectorPlan {
+    /// Plan-owned workspace bytes; nonzero only for split-K.
+    #[must_use]
+    pub fn workspace_bytes(&self) -> usize {
+        // SAFETY: raw remains live for the lifetime of this plan.
+        unsafe { mircuda_dense_vector_workspace_bytes(self.raw.as_ptr()) }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn execute(
         &mut self,

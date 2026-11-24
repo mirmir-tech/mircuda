@@ -1,7 +1,11 @@
 //! Dense GEMV microbenchmark: tensor-core GEMM, cuBLASLt and the vector plan
-//! per kernel. Vector kernels replay as graphs; pass case names to select.
+//! per kernel, including a split-K sweep. Vector kernels replay as graphs;
+//! pass case names to select.
 
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    num::NonZeroU16,
+};
 
 use mircuda::{
     Context, CublasLtBf16Plan, CublasLtBf16Spec, DenseMatmulPlan, DenseMatmulSpec,
@@ -21,6 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let driver = Driver::initialize()?;
     let device = driver.devices()?.into_iter().next().ok_or(mircuda::Error::InvalidLaunch)?;
     let context = driver.create_context(device)?;
+    let multiprocessors = context.device_info()?.multiprocessor_count;
     let stream = context.create_stream()?;
     let pool = context.default_memory_pool()?;
     let selected = std::env::args().skip(1).collect::<Vec<_>>();
@@ -30,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .copied()
         .filter(|case| selected.is_empty() || selected.iter().any(|name| name == case.name))
     {
-        run(&context, &stream, &pool, case, &mut stdout)?;
+        run(&context, &stream, &pool, case, multiprocessors, &mut stdout)?;
     }
     Ok(())
 }
@@ -40,6 +45,7 @@ fn run(
     stream: &Stream,
     pool: &MemoryPool,
     case: Case,
+    multiprocessors: u32,
     stdout: &mut impl Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let elements = case.n.checked_mul(case.k).ok_or(mircuda::Error::InvalidMatmulShape)?;
@@ -88,6 +94,21 @@ fn run(
         groups?,
         per_row?,
     )?;
+    let candidates = spec.split_k_candidates(multiprocessors);
+    write!(stdout, "  graph_split_k us:")?;
+    for splits in graph::SPLITS.into_iter().filter_map(NonZeroU16::new) {
+        let kernel = DenseVectorKernel::SplitK { splits };
+        let time = graph::measure(context, stream, spec, kernel, &input, &banks, &mut output)?;
+        let marker = if candidates.contains(&kernel) {
+            "*"
+        } else {
+            ""
+        };
+        if let Some(time) = time {
+            write!(stdout, " s{splits}{marker}={time:.3}")?;
+        }
+    }
+    writeln!(stdout)?;
     Ok(())
 }
 

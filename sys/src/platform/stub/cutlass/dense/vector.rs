@@ -1,3 +1,5 @@
+use std::num::NonZeroU16;
+
 use super::{
     super::super::{Context, DeviceBuffer, Stream, unsupported},
     DenseMatmulDataType,
@@ -11,6 +13,13 @@ pub enum DenseVectorKernel {
     RowGroups,
     /// Each block reduces one row, its warps splitting the input; `k % 8 == 0`.
     BlockPerRow,
+    /// `splits` blocks per row each reduce a balanced slice of the input into
+    /// an FP32 partial in plan-owned workspace; the last block of a row sums
+    /// the partials in slice order. `k % 8 == 0` and `splits <= k / 8`.
+    SplitK {
+        /// Input slices per output row.
+        splits: NonZeroU16,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -35,6 +44,11 @@ impl Context {
 }
 
 impl DenseVectorPlan {
+    #[must_use]
+    pub const fn workspace_bytes(&self) -> usize {
+        0
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub const fn execute(
         &mut self,

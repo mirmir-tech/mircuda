@@ -71,4 +71,14 @@ pub enum Error {
         /// Element count supplied at execution.
         actual: usize,
     },
+    /// The selected dense vector kernel cannot execute this plan shape.
+    #[error("dense vector kernel {kernel:?} does not admit n={n}, k={k}")]
+    VectorKernelShape {
+        /// Kernel rejected for the shape.
+        kernel: crate::DenseVectorKernel,
+        /// Output element count.
+        n: usize,
+        /// Reduction dimension.
+        k: usize,
+    },
 }

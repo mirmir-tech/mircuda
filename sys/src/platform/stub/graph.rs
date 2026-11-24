@@ -24,12 +24,15 @@ impl Capture<'_> {
 
 /// Captures in progress and the teardown waiting for them; always none
 /// without CUDA.
+// Not part of the supported API: exists for tests and diagnostics.
+#[doc(hidden)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct CaptureActivity {
     pub capturing_threads: usize,
     pub deferred_teardown: usize,
 }
 
+#[doc(hidden)]
 #[must_use]
 pub const fn capture_activity() -> CaptureActivity {
     CaptureActivity {

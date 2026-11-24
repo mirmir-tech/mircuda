@@ -5,6 +5,9 @@ use mircuda::{
 
 use super::CYCLES;
 
+/// Split-K slice counts swept per case; tuner candidates are starred.
+pub const SPLITS: [u16; 10] = [2, 3, 4, 6, 8, 12, 16, 24, 32, 48];
+
 /// One vector plan applied to every weight bank, captured as a single graph
 /// so launch overhead does not hide router-sized kernels.
 struct Banks<'a> {

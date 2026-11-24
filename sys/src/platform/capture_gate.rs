@@ -62,6 +62,8 @@ pub(super) fn leave() {
 }
 
 /// Captures in progress and the teardown waiting for them.
+// Not part of the supported API: exists for tests and diagnostics.
+#[doc(hidden)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct CaptureActivity {
     /// Threads with a capture in progress.
@@ -71,6 +73,7 @@ pub struct CaptureActivity {
 }
 
 /// The process-wide capture activity, for diagnostics and tests.
+#[doc(hidden)]
 #[must_use]
 pub fn activity() -> CaptureActivity {
     let state = STATE.lock().unwrap_or_else(PoisonError::into_inner);
