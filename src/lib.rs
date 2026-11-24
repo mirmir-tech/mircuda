@@ -38,7 +38,7 @@ pub use cutlass::{
 pub use driver::{Context, Device, DeviceInfo, Driver, Stream};
 pub use error::{Error, Result};
 pub use event::Event;
-pub use graph::{CaptureMode, Graph, KernelNode};
+pub use graph::{CaptureActivity, CaptureMode, Graph, KernelNode, capture_activity};
 pub use half::{bf16, f16};
 pub use launch::{
     KernelArguments, KernelScalar, KernelSignature, LaunchConfig, ScalarValue, TypedKernel,

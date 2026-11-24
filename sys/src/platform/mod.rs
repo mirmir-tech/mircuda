@@ -14,6 +14,7 @@ mod profile;
 #[cfg(feature = "cublaslt")]
 mod vendor;
 
+pub use capture_gate::{CaptureActivity, activity as capture_activity};
 pub use compiler::{
     CompileSpec, CompiledCubin, CompiledPtx, Kernel, KernelArgument, LaunchConfig, Module,
     compiler_version,
@@ -31,7 +32,7 @@ pub use cutlass::{
 };
 pub use driver::{Context, DeviceInfo, Driver, Stream};
 pub use event::Event;
-pub use graph::{CaptureMode, Graph, KernelNode};
+pub use graph::{Capture, CaptureMode, Graph, KernelNode};
 #[cfg(feature = "marlin")]
 pub use marlin::{
     MarlinMxFp4RepackSpec, MarlinNvFp4MoeSpec, MarlinNvFp4RepackSpec, MarlinNvFp4ThreadConfig,

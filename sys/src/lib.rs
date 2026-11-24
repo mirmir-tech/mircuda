@@ -16,9 +16,10 @@ pub use platform::{
     VariableGroupedFp4Plan, VariableGroupedFp4Spec,
 };
 pub use platform::{
-    CaptureMode, CompileSpec, CompiledCubin, CompiledPtx, Context, DeviceBuffer, DeviceInfo,
-    Driver, Event, Graph, Kernel, KernelArgument, KernelNode, LaunchConfig, MemoryPool,
-    MemoryPoolStats, Module, PinnedBuffer, ProfilerRange, Stream, compiler_version,
+    Capture, CaptureActivity, CaptureMode, CompileSpec, CompiledCubin, CompiledPtx, Context,
+    DeviceBuffer, DeviceInfo, Driver, Event, Graph, Kernel, KernelArgument, KernelNode,
+    LaunchConfig, MemoryPool, MemoryPoolStats, Module, PinnedBuffer, ProfilerRange, Stream,
+    capture_activity, compiler_version,
 };
 #[cfg(feature = "cublaslt")]
 pub use platform::{

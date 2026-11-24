@@ -11,7 +11,7 @@ mod profile;
 #[cfg(feature = "cublaslt")]
 mod vendor;
 pub use compiler::{CompileSpec, CompiledCubin, CompiledPtx, compiler_version};
-pub use graph::{CaptureMode, Graph, KernelNode};
+pub use graph::{Capture, CaptureActivity, CaptureMode, Graph, KernelNode, capture_activity};
 #[cfg(feature = "marlin")]
 pub use marlin::{
     MarlinMxFp4RepackSpec, MarlinNvFp4MoeSpec, MarlinNvFp4RepackSpec, MarlinNvFp4ThreadConfig,

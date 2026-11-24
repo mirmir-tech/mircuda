@@ -39,11 +39,16 @@ pub(super) fn enter() {
 }
 
 /// Ends the capture marked by the matching [`enter`]. The last capture to end
-/// runs the deferred teardown before another capture can begin.
+/// runs the deferred teardown before another capture can begin. A thread with
+/// no capture marked leaves nothing, so it cannot end another thread's.
 pub(super) fn leave() {
-    let depth = DEPTH.get().saturating_sub(1);
-    DEPTH.set(depth);
-    if depth > 0 {
+    let depth = DEPTH.get();
+    debug_assert!(depth > 0, "a thread left a capture it never entered");
+    if depth == 0 {
+        return;
+    }
+    DEPTH.set(depth - 1);
+    if depth > 1 {
         return;
     }
     let mut state = STATE.lock().unwrap_or_else(PoisonError::into_inner);
@@ -56,13 +61,22 @@ pub(super) fn leave() {
     drop(state);
 }
 
-/// Calls [`leave`] when dropped, so every exit from ending a capture
-/// releases its mark.
-pub(super) struct Leave;
+/// Captures in progress and the teardown waiting for them.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct CaptureActivity {
+    /// Threads with a capture in progress.
+    pub capturing_threads: usize,
+    /// Teardown deferred until those captures end.
+    pub deferred_teardown: usize,
+}
 
-impl Drop for Leave {
-    fn drop(&mut self) {
-        leave();
+/// The process-wide capture activity, for diagnostics and tests.
+#[must_use]
+pub fn activity() -> CaptureActivity {
+    let state = STATE.lock().unwrap_or_else(PoisonError::into_inner);
+    CaptureActivity {
+        capturing_threads: state.active,
+        deferred_teardown: state.deferred.len(),
     }
 }
 

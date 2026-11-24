@@ -2,8 +2,11 @@ use std::sync::Arc;
 
 use cudarc::driver::{CudaStream, result, sys};
 
+mod capture;
+
+pub use capture::Capture;
+
 use super::{
-    capture_gate,
     compiler::{Kernel, KernelArgument, LaunchConfig},
     driver::Stream,
 };
@@ -54,48 +57,6 @@ impl std::fmt::Debug for Graph {
 }
 
 impl Stream {
-    /// Begins capture holding the capture gate; [`Self::end_capture`] must
-    /// follow on this thread after a successful begin.
-    pub fn begin_capture(&self, mode: CaptureMode) -> Result<()> {
-        capture_gate::enter();
-        let begun = self.inner.begin_capture(mode.native());
-        if begun.is_err() {
-            capture_gate::leave();
-        }
-        Ok(begun?)
-    }
-
-    pub fn end_capture(&self) -> Result<Graph> {
-        let _leave = capture_gate::Leave;
-        self.inner.context().bind_to_thread()?;
-        // SAFETY: capture is active on this live stream.
-        let raw = unsafe { result::stream::end_capture(self.inner.cu_stream())? };
-        if raw.is_null() {
-            return Err(Error::EmptyGraph);
-        }
-        let mut executable = std::ptr::null_mut();
-        // SAFETY: raw is a live captured graph and zero requests default instantiation.
-        let instantiated = unsafe { sys::cuGraphInstantiateWithFlags(&raw mut executable, raw, 0) };
-        if let Err(source) = instantiated.result() {
-            // SAFETY: raw was returned by the successful capture above.
-            let _result = unsafe { result::graph::destroy(raw) };
-            return Err(source.into());
-        }
-        // SAFETY: executable and stream are live and belong to the bound context.
-        if let Err(source) = unsafe { result::graph::upload(executable, self.inner.cu_stream()) } {
-            // SAFETY: both handles were created successfully in this function.
-            let _exec_result = unsafe { result::graph::exec_destroy(executable) };
-            // SAFETY: raw remains live until this matching destroy.
-            let _graph_result = unsafe { result::graph::destroy(raw) };
-            return Err(source.into());
-        }
-        Ok(Graph {
-            raw,
-            executable,
-            stream: self.inner.clone(),
-        })
-    }
-
     pub fn captured_kernel_node(&self, kernel: &Kernel) -> Result<KernelNode> {
         self.inner.context().bind_to_thread()?;
         let mut status = std::mem::MaybeUninit::uninit();

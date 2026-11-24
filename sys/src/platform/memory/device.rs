@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use cudarc::driver::{result, sys};
 
-use super::DeviceBuffer;
+use super::{super::capture_gate, DeviceBuffer};
 
 impl DeviceBuffer {
     #[must_use]
@@ -58,9 +58,19 @@ impl Drop for DeviceBuffer {
         context.record_err(context.bind_to_thread());
         if let Err(error) = self.foreign.order_before(&self.stream) {
             // Without the stream ordering the free could overtake foreign
-            // work; fall back to waiting for the whole context.
+            // work; fall back to waiting for the whole context, which must
+            // stay out of other threads' captures.
             context.record_err::<()>(Err(error));
-            context.record_err(context.synchronize());
+            let (pointer, stream) = (self.pointer, self.stream.clone());
+            capture_gate::release(move || {
+                let context = stream.context();
+                context.record_err(context.bind_to_thread());
+                context.record_err(context.synchronize());
+                // SAFETY: this teardown solely owns the allocation, and the
+                // context has finished all work, foreign streams included.
+                context.record_err(unsafe { result::free_async(pointer, stream.cu_stream()) });
+            });
+            return;
         }
         // SAFETY: this is the sole owner and free is ordered on the allocation
         // stream after the work queued on every foreign stream.

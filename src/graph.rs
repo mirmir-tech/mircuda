@@ -89,11 +89,14 @@ impl Stream {
     where
         CaptureError: From<crate::Error>,
     {
-        if let Err(error) = self.begin_capture(mode) {
-            return Err((error.into(), resources));
-        }
+        let capture = match self.native.begin_capture(mode.native()) {
+            Ok(capture) => capture,
+            Err(error) => return Err((crate::Error::from(error).into(), resources)),
+        };
+        // A panic in `operation` drops `capture`, which discards it and
+        // releases the capture gate.
         let operation_result = operation(&mut resources);
-        let graph_result = self.end_capture();
+        let graph_result = capture.end().map_err(crate::Error::from);
         if let Err(error) = operation_result {
             return Err((error, resources));
         }
@@ -102,14 +105,27 @@ impl Stream {
             Err(error) => Err((error.into(), resources)),
         }
     }
+}
 
-    fn begin_capture(&self, mode: CaptureMode) -> Result<()> {
-        Ok(self.native.begin_capture(mode.native())?)
+/// Captures in progress and the teardown deferred until they end, across
+/// the process.
+#[must_use]
+pub fn capture_activity() -> CaptureActivity {
+    let activity = mircuda_sys::capture_activity();
+    CaptureActivity {
+        capturing_threads: activity.capturing_threads,
+        deferred_teardown: activity.deferred_teardown,
     }
+}
 
-    fn end_capture(&self) -> Result<mircuda_sys::Graph> {
-        Ok(self.native.end_capture()?)
-    }
+/// Stream captures in progress and the device-synchronizing teardown
+/// deferred until the last of them ends.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct CaptureActivity {
+    /// Threads with a capture in progress.
+    pub capturing_threads: usize,
+    /// Teardown waiting for those captures to end.
+    pub deferred_teardown: usize,
 }
 
 impl<Resources> Graph<Resources> {

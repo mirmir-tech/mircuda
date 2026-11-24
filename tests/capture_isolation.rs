@@ -3,10 +3,13 @@
 //! Work on other threads of the same device must not invalidate a
 //! thread-local capture: neither another runtime starting up, nor the release
 //! of a buffer used on several streams, nor the release of a cuBLAS handle.
+//! A capture that ends early, by a panic or a failed begin, must release the
+//! capture gate so that later teardown runs instead of staying deferred.
 
 use std::{
+    panic::AssertUnwindSafe,
     sync::{
-        Barrier,
+        Barrier, Mutex, MutexGuard, PoisonError,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -41,10 +44,14 @@ fn capture_while_another_thread_works(sequence: &mut Sequence<'_>) -> mircuda::R
     Ok(())
 }
 
+/// The capture gate is process-wide: tests that observe it run one at a time.
+static SERIAL: Mutex<()> = Mutex::new(());
+
 struct Fixture {
     context: Context,
     pool: MemoryPool,
     kernel: TypedKernel<Increment>,
+    _serial: MutexGuard<'static, ()>,
 }
 
 fn new_context() -> mircuda::Result<Context> {
@@ -55,6 +62,7 @@ fn new_context() -> mircuda::Result<Context> {
 
 impl Fixture {
     fn new() -> mircuda::Result<Self> {
+        let serial = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
         let context = new_context()?;
         let pool = context.default_memory_pool()?;
         let compiler = Compiler::new(context.clone())?;
@@ -64,7 +72,7 @@ impl Fixture {
             }"#
         );
         let kernel = compiler.compile(source, &CompileOptions::default())?.kernel::<Increment>()?;
-        Ok(Self { context, pool, kernel })
+        Ok(Self { context, pool, kernel, _serial: serial })
     }
 
     /// Captures one increment while `other` runs on another thread, then
@@ -148,4 +156,50 @@ fn capture_survives_a_cublaslt_plan_on_another_thread() -> mircuda::Result<()> {
         drop(plan);
         Ok(())
     })
+}
+
+#[expect(clippy::panic, reason = "the test drives a panic through a capture")]
+fn panic_during_capture(_: &mut ()) -> mircuda::Result<()> {
+    std::panic::panic_any("the captured operation panics")
+}
+
+#[cfg(feature = "cublaslt")]
+#[test]
+fn a_panicking_capture_releases_the_gate() -> mircuda::Result<()> {
+    let fixture = Fixture::new()?;
+    let stream = fixture.context.create_stream()?;
+    let panicked = std::panic::catch_unwind(AssertUnwindSafe(|| {
+        stream.capture((), panic_during_capture).map(drop)
+    }));
+    assert!(panicked.is_err());
+    assert_eq!(mircuda::capture_activity().capturing_threads, 0);
+    let spec = mircuda::CublasLtBf16Spec::new(64, 64, 64)?;
+    drop(mircuda::CublasLtBf16Plan::new(&fixture.context, &stream, spec)?);
+    assert_eq!(mircuda::capture_activity(), mircuda::CaptureActivity::default());
+    // The stream captures again after the discarded capture.
+    fixture.capture_during(|_| Ok(()))
+}
+
+/// A capture that begins inside another on the same stream fails to begin.
+fn nested_capture(
+    sequence: &mut (&TypedKernel<Increment>, &Stream, &mut DeviceBuffer<u32>),
+) -> mircuda::Result<()> {
+    let (kernel, stream, value) = sequence;
+    kernel.launch_captured(stream, LaunchConfig::for_elements(1, 1)?, (&mut **value, 1))?;
+    assert!(stream.capture((), |()| Ok::<_, mircuda::Error>(())).is_err());
+    assert_eq!(mircuda::capture_activity().capturing_threads, 1);
+    Ok(())
+}
+
+#[test]
+fn a_failed_begin_leaves_no_capture_behind() -> mircuda::Result<()> {
+    let fixture = Fixture::new()?;
+    let stream = fixture.context.create_stream()?;
+    let mut value = fixture.pool.allocate_zeroed::<u32>(&stream, 1)?;
+    // The outer capture may end invalidated by the failed begin; either way
+    // both release the gate.
+    let outer = stream.capture((&fixture.kernel, &stream, &mut value), nested_capture);
+    drop(outer);
+    assert_eq!(mircuda::capture_activity(), mircuda::CaptureActivity::default());
+    fixture.capture_during(|_| Ok(()))
 }
