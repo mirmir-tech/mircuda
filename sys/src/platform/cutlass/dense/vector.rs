@@ -16,6 +16,7 @@ unsafe extern "C" {
         data_type: i32,
         n: i32,
         k: i32,
+        kernel: i32,
         stream: *mut c_void,
         output: *mut *mut c_void,
     ) -> i32;
@@ -31,11 +32,30 @@ unsafe extern "C" {
     fn mircuda_dense_vector_destroy(plan: *mut c_void);
 }
 
+/// Work decomposition of a matrix-vector plan.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum DenseVectorKernel {
+    /// Each block reduces 32 rows, four per warp, across the whole input; any `k`.
+    RowGroups,
+    /// Each block reduces one row, its warps splitting the input; `k % 8 == 0`.
+    BlockPerRow,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DenseVectorSpec {
     pub n: usize,
     pub k: usize,
     pub data_type: DenseMatmulDataType,
+    pub kernel: DenseVectorKernel,
+}
+
+impl DenseVectorKernel {
+    const fn native(self) -> i32 {
+        match self {
+            Self::RowGroups => 0,
+            Self::BlockPerRow => 1,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -66,6 +86,7 @@ impl Context {
                 spec.data_type.native(),
                 i32::try_from(spec.n)?,
                 i32::try_from(spec.k)?,
+                spec.kernel.native(),
                 stream.inner.cu_stream().cast(),
                 &raw mut raw,
             )

@@ -1,108 +1,21 @@
+//! Dense GEMV microbenchmark: tensor-core GEMM, cuBLASLt and the vector plan
+//! per kernel. Vector kernels replay as graphs; pass case names to select.
+
 use std::io::{self, Write};
 
 use mircuda::{
-    Context, CublasLtBf16Plan, CublasLtBf16Spec, DenseMatmulPlan, DenseMatmulSpec, DenseVectorPlan,
-    DenseVectorSpec, DeviceBuffer, Driver, MemoryPool, Stream, bf16,
+    Context, CublasLtBf16Plan, CublasLtBf16Spec, DenseMatmulPlan, DenseMatmulSpec,
+    DenseVectorKernel, DenseVectorPlan, DenseVectorSpec, DeviceBuffer, Driver, MemoryPool, Stream,
+    bf16,
 };
+
+mod cases;
+mod graph;
+
+use cases::{CASES, Case};
 
 const CYCLES: u16 = 4;
 const TARGET_BANK_BYTES: usize = 768 * 1_024 * 1_024;
-
-#[derive(Clone, Copy)]
-struct Case {
-    name: &'static str,
-    n: usize,
-    k: usize,
-}
-
-const CASES: &[Case] = &[
-    Case { name: "router", n: 128, k: 2_816 },
-    Case {
-        name: "shared-gate-up-2048",
-        n: 512,
-        k: 2_048,
-    },
-    Case {
-        name: "shared-down-2048",
-        n: 2_048,
-        k: 512,
-    },
-    Case {
-        name: "mixer-qkv-2048",
-        n: 8_192,
-        k: 2_048,
-    },
-    Case {
-        name: "mixer-gate-2048",
-        n: 4_096,
-        k: 2_048,
-    },
-    Case {
-        name: "mixer-parameters-2048",
-        n: 32,
-        k: 2_048,
-    },
-    Case {
-        name: "mixer-output-2048",
-        n: 2_048,
-        k: 4_096,
-    },
-    Case { name: "gpt-oss-qkv", n: 5_120, k: 2_880 },
-    Case {
-        name: "gpt-oss-attention-output",
-        n: 2_880,
-        k: 4_096,
-    },
-    Case { name: "gpt-oss-router", n: 32, k: 2_880 },
-    Case {
-        name: "gpt-oss-output-head",
-        n: 201_088,
-        k: 2_880,
-    },
-    Case {
-        name: "attention-qkv-2560",
-        n: 6_144,
-        k: 2_560,
-    },
-    Case {
-        name: "attention-output-2560",
-        n: 2_560,
-        k: 4_096,
-    },
-    Case {
-        name: "dense-gate-up-2560",
-        n: 19_456,
-        k: 2_560,
-    },
-    Case {
-        name: "dense-down-2560",
-        n: 2_560,
-        k: 9_728,
-    },
-    Case {
-        name: "output-head-2560",
-        n: 151_936,
-        k: 2_560,
-    },
-    Case { name: "dense-down", n: 2_816, k: 2_112 },
-    Case {
-        name: "attention-output",
-        n: 2_816,
-        k: 4_096,
-    },
-    Case {
-        name: "dense-gate-up",
-        n: 4_224,
-        k: 2_816,
-    },
-    Case { name: "local-qkv", n: 8_192, k: 2_816 },
-    Case { name: "global-qkv", n: 10_240, k: 2_816 },
-    Case {
-        name: "output-head",
-        n: 262_144,
-        k: 2_816,
-    },
-];
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let driver = Driver::initialize()?;
@@ -155,16 +68,25 @@ fn run(
     let vendor_us = measure(context, stream, &banks, |weight| {
         vendor.execute(stream, &input, weight, &mut output, 1.0, 0.0)
     })?;
+    let spec = vector.spec();
+    let [groups, per_row] =
+        [DenseVectorKernel::RowGroups, DenseVectorKernel::BlockPerRow].map(|kernel| {
+            graph::measure(context, stream, spec, kernel, &input, &banks, &mut output)
+                .map(|time| time.map_or_else(|| String::from("n/a"), |time| format!("{time:.3}")))
+        });
     writeln!(
         stdout,
         "{}: n={} k={} banks={} matrix={matrix_us:.3} us vector={vector_us:.3} us \
-         cublaslt={vendor_us:.3} us vector_speedup={:.3}x cublaslt_speedup={:.3}x",
+         cublaslt={vendor_us:.3} us vector_speedup={:.3}x cublaslt_speedup={:.3}x \
+         graph_row_groups={} us graph_block_per_row={} us",
         case.name,
         case.n,
         case.k,
         banks.len(),
         matrix_us / vector_us,
         matrix_us / vendor_us,
+        groups?,
+        per_row?,
     )?;
     Ok(())
 }

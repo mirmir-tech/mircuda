@@ -9,7 +9,8 @@ mod scaled_fp8;
 mod variable_grouped;
 
 pub use dense::{
-    DenseMatmulDataType, DenseMatmulPlan, DenseMatmulSpec, DenseVectorPlan, DenseVectorSpec,
+    DenseMatmulDataType, DenseMatmulPlan, DenseMatmulSpec, DenseVectorKernel, DenseVectorPlan,
+    DenseVectorSpec,
 };
 pub use fmha::{FmhaBf16Plan, FmhaBf16Spec};
 pub use fp4::{

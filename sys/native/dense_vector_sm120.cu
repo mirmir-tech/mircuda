@@ -131,15 +131,13 @@ __global__ void kernel(const Element* input, const Element* weight,
   }
 }
 
-// Few output rows (routers: 32 or 128) would leave all but a few SMs idle
-// and walk the whole input serially, so each block takes one row and its
-// warps split the input columns.
-constexpr int kSplitRowsLimit = 512;
-
+// One block per row, its warps splitting the input columns (k % 8 == 0). Few
+// output rows (routers) get one block each instead of one 32-row block; the
+// plan's kernel, measured by the caller's tuner, selects it over `kernel`.
 template <typename Element>
-__global__ void split_kernel(const Element* input, const Element* weight,
-                             Element* output, int n, int k, float alpha,
-                             float beta) {
+__global__ void row_kernel(const Element* input, const Element* weight,
+                           Element* output, int n, int k, float alpha,
+                           float beta) {
   const int lane = threadIdx.x & 31;
   const int warp = threadIdx.x >> 5;
   const int row = blockIdx.x;
@@ -182,28 +180,34 @@ __global__ void split_kernel(const Element* input, const Element* weight,
 template <typename Element>
 int launch(Plan* plan, const void* input, const void* weight, void* output,
            float alpha, float beta) {
-  if (plan->n <= kSplitRowsLimit && (plan->k & 7) == 0) {
-    split_kernel<<<plan->n, kWarps * 32, 0, plan->stream>>>(
-        static_cast<const Element*>(input), static_cast<const Element*>(weight),
-        static_cast<Element*>(output), plan->n, plan->k, alpha, beta);
-    return static_cast<int>(cudaPeekAtLastError());
+  const auto* typed_input = static_cast<const Element*>(input);
+  const auto* typed_weight = static_cast<const Element*>(weight);
+  auto* typed_output = static_cast<Element*>(output);
+  if (plan->kernel == Kernel::BlockPerRow) {
+    row_kernel<<<plan->n, kWarps * 32, 0, plan->stream>>>(
+        typed_input, typed_weight, typed_output, plan->n, plan->k, alpha, beta);
+  } else {
+    const int blocks = (plan->n + kRowsPerBlock - 1) / kRowsPerBlock;
+    kernel<<<blocks, kWarps * 32, 0, plan->stream>>>(
+        typed_input, typed_weight, typed_output, plan->n, plan->k, alpha, beta);
   }
-  const int blocks = (plan->n + kRowsPerBlock - 1) / kRowsPerBlock;
-  kernel<<<blocks, kWarps * 32, 0, plan->stream>>>(
-      static_cast<const Element*>(input), static_cast<const Element*>(weight),
-      static_cast<Element*>(output), plan->n, plan->k, alpha, beta);
   return static_cast<int>(cudaPeekAtLastError());
 }
 
 }  // namespace mircuda::dense_vector
 
 extern "C" int mircuda_dense_vector_create(int data_type, int n, int k,
-                                             void* stream, void** output) {
+                                             int kernel, void* stream,
+                                             void** output) {
   using namespace mircuda::dense_vector;
+  const bool row_groups = kernel == static_cast<int>(Kernel::RowGroups);
+  const bool block_per_row =
+      kernel == static_cast<int>(Kernel::BlockPerRow) && (k & 7) == 0;
   if ((data_type != 0 && data_type != 1) || n <= 0 || k <= 0 ||
-      stream == nullptr || output == nullptr) return -1;
-  auto* plan = new (std::nothrow)
-      Plan{data_type, n, k, static_cast<cudaStream_t>(stream)};
+      !(row_groups || block_per_row) || stream == nullptr || output == nullptr)
+    return -1;
+  auto* plan = new (std::nothrow) Plan{data_type, n, k, static_cast<Kernel>(kernel),
+                                       static_cast<cudaStream_t>(stream)};
   if (plan == nullptr) return -2;
   *output = plan;
   return 0;

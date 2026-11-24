@@ -1,17 +1,22 @@
 use std::marker::PhantomData;
 
+pub use mircuda_sys::DenseVectorKernel;
+
 use super::DenseMatmulElement;
 use crate::{Context, DeviceBuffer, Error, Result, Stream};
 
-/// Fixed geometry for `output[N] = alpha * weight[N,K] * input[K] + beta * output[N]`.
+/// Fixed geometry and kernel for
+/// `output[N] = alpha * weight[N,K] * input[K] + beta * output[N]`.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct DenseVectorSpec {
     n: usize,
     k: usize,
+    kernel: DenseVectorKernel,
 }
 
 impl DenseVectorSpec {
-    /// Creates a validated row-major matrix-vector shape.
+    /// Creates a validated row-major matrix-vector shape with the default
+    /// kernel: [`DenseVectorKernel::BlockPerRow`] when `k` admits it.
     pub fn new(n: usize, k: usize) -> Result<Self> {
         if n == 0 || k == 0 {
             return Err(Error::InvalidMatmulShape);
@@ -20,7 +25,34 @@ impl DenseVectorSpec {
             let _ = i32::try_from(value)?;
         }
         let _ = n.checked_mul(k).ok_or(Error::InvalidMatmulShape)?;
-        Ok(Self { n, k })
+        let kernel = if Self::admits(k, DenseVectorKernel::BlockPerRow) {
+            DenseVectorKernel::BlockPerRow
+        } else {
+            DenseVectorKernel::RowGroups
+        };
+        Ok(Self { n, k, kernel })
+    }
+
+    /// Selects another kernel for the same shape, as a tuner measures them.
+    pub const fn with_kernel(self, kernel: DenseVectorKernel) -> Result<Self> {
+        if Self::admits(self.k, kernel) {
+            Ok(Self { kernel, ..self })
+        } else {
+            Err(Error::InvalidMatmulShape)
+        }
+    }
+
+    /// Kernel that executes this shape.
+    #[must_use]
+    pub const fn kernel(self) -> DenseVectorKernel {
+        self.kernel
+    }
+
+    const fn admits(k: usize, kernel: DenseVectorKernel) -> bool {
+        match kernel {
+            DenseVectorKernel::RowGroups => true,
+            DenseVectorKernel::BlockPerRow => k.is_multiple_of(8),
+        }
     }
 
     /// Output element count.
@@ -51,6 +83,7 @@ impl<T: DenseMatmulElement> DenseVectorPlan<T> {
             n: spec.n,
             k: spec.k,
             data_type: T::NATIVE_TYPE,
+            kernel: spec.kernel,
         };
         Ok(Self {
             native: context.native.create_dense_vector_plan(&stream.native, native_spec)?,

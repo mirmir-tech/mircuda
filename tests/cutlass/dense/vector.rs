@@ -1,12 +1,17 @@
-use mircuda::{DenseMatmulPlan, DenseMatmulSpec, DenseVectorPlan, DenseVectorSpec, bf16};
+use mircuda::{
+    DenseMatmulPlan, DenseMatmulSpec, DenseVectorKernel, DenseVectorPlan, DenseVectorSpec, bf16,
+};
 
 use super::{copy_device, environment, read_device};
 
-/// Router-sized outputs take the split-input kernel (one row per block),
-/// wider ones the multi-row kernel.
+const KERNELS: [DenseVectorKernel; 2] =
+    [DenseVectorKernel::RowGroups, DenseVectorKernel::BlockPerRow];
+
+/// Every kernel matches the tensor-core GEMM for router-sized and wide
+/// outputs; inputs not divisible by 8 admit only the row-group kernel.
 #[test]
 fn matches_tensor_core_gemm() -> mircuda::Result<()> {
-    for (outputs, features) in [(32, 2_880), (257, 2_816), (1_031, 2_816)] {
+    for (outputs, features) in [(32, 2_880), (257, 2_816), (1_031, 2_816), (64, 2_050), (33, 999)] {
         let input = (0..features)
             .map(|index| Ok(bf16::from_f32(f32::from(u8::try_from(index % 31)?) / 32.0 - 0.5)))
             .collect::<mircuda::Result<Vec<_>>>()?;
@@ -47,21 +52,28 @@ fn compare(
     let input = copy_device(&context, &stream, &pool, input)?;
     let weight = copy_device(&context, &stream, &pool, weight)?;
     let mut expected = copy_device(&context, &stream, &pool, &vec![bf16::ZERO; outputs])?;
-    let mut actual = copy_device(&context, &stream, &pool, &vec![bf16::NAN; outputs])?;
     DenseMatmulPlan::new(&context, &stream, DenseMatmulSpec::new(1, outputs, features)?)?
         .execute(&stream, &input, &weight, &mut expected, 1.0, 0.0)?;
-    DenseVectorPlan::new(&context, &stream, DenseVectorSpec::new(outputs, features)?)?
-        .execute(&stream, &input, &weight, &mut actual, 1.0, 0.0)?;
     let expected = read_device(&context, &stream, &expected)?;
-    let actual = read_device(&context, &stream, &actual)?;
-    assert!(actual.iter().all(|value| value.to_f32().is_finite()));
-    assert_eq!(maximum(&actual), maximum(&expected));
-    let error = expected
-        .iter()
-        .zip(&actual)
-        .map(|(left, right)| (left.to_f32() - right.to_f32()).abs())
-        .fold(0.0_f32, f32::max);
-    assert!(error <= tolerance, "maximum BF16 GEMV difference: {error}");
+    let shape = DenseVectorSpec::new(outputs, features)?;
+    for kernel in KERNELS {
+        let Ok(spec) = shape.with_kernel(kernel) else {
+            assert!(kernel == DenseVectorKernel::BlockPerRow && !features.is_multiple_of(8));
+            continue;
+        };
+        let mut actual = copy_device(&context, &stream, &pool, &vec![bf16::NAN; outputs])?;
+        DenseVectorPlan::new(&context, &stream, spec)?
+            .execute(&stream, &input, &weight, &mut actual, 1.0, 0.0)?;
+        let actual = read_device(&context, &stream, &actual)?;
+        assert!(actual.iter().all(|value| value.to_f32().is_finite()));
+        assert_eq!(maximum(&actual), maximum(&expected), "{kernel:?} argmax");
+        let error = expected
+            .iter()
+            .zip(&actual)
+            .map(|(left, right)| (left.to_f32() - right.to_f32()).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(error <= tolerance, "maximum {kernel:?} BF16 GEMV difference: {error}");
+    }
     Ok(())
 }
 
