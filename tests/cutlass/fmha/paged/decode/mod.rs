@@ -7,6 +7,8 @@ use super::{
     maximum_error,
 };
 
+mod grouped;
+
 const QUERY_HEADS: usize = 16;
 const KV_HEADS: usize = 2;
 const HEAD_DIM: usize = 256;

@@ -20,10 +20,10 @@ int launch_typed(
     int window_size_left, float scale, cudaStream_t stream) {
   const bool is_decode = max_query_tokens == 1;
   const bool is_local = window_size_left >= 0;
-  // Swapping query groups into the sequence axis shares K/V loads across a
-  // group, but its rows would then sit at different query positions for a
-  // window mask, so windowed decode keeps one query row per head.
-  const bool transpose_gqa = is_decode && !is_local && query_heads > kv_heads;
+  // Decode packs each GQA group's query heads into the row axis so the group
+  // shares every K/V load. The packed rows are one query token, so a window
+  // mask must place all of them at that token's position, not at their rows.
+  const bool transpose_gqa = is_decode && query_heads > kv_heads;
   const int query_groups = query_heads / kv_heads;
   const int effective_query_tokens = transpose_gqa ? query_groups : max_query_tokens;
   const int effective_query_heads = transpose_gqa ? kv_heads : query_heads;
@@ -79,6 +79,7 @@ int launch_typed(
   params.is_seqlens_k_cumulative = true;
   params.unpadded_lse = true;
   params.seqlenq_ngroups_swapped = transpose_gqa;
+  params.rows_share_position = transpose_gqa;
   params.num_splits = num_splits;
   if (is_decode || is_local) {
     flash::run_mha_fwd_splitkv_dispatch<cutlass::bfloat16_t, HeadDim, false>(
