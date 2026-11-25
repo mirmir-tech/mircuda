@@ -112,6 +112,7 @@ impl Stream {
 // Not part of the supported API: exists for tests and diagnostics.
 #[doc(hidden)]
 #[must_use]
+#[allow(clippy::missing_const_for_fn, reason = "const only on the host stub")]
 pub fn capture_activity() -> CaptureActivity {
     let activity = mircuda_sys::capture_activity();
     CaptureActivity {
