@@ -18,6 +18,18 @@ __host__ __device__ inline long long row_offset(int row, int k) {
   return static_cast<long long>(row) * k;
 }
 
+// The widest input a plan accepts: a column loop's last step, at most
+// `column + 256`, stays below `INT_MAX`, so its `int` induction never
+// overflows and costs nothing per step.
+constexpr int kMaxColumns = 0x7fffffff - 255;
+
+// Row-group blocks covering `n` rows, without the `n + 31` that overflows
+// near `INT_MAX`. Their rows stay below `ceil(n / 32) * 32 <= 2^31`, so a
+// row index never overflows either.
+__host__ __device__ inline int row_blocks(int n) {
+  return n / kRowsPerBlock + (n % kRowsPerBlock != 0);
+}
+
 template <typename Element>
 struct Convert;
 
@@ -293,7 +305,7 @@ int launch(Plan* plan, const void* input, const void* weight, void* output,
     row_kernel<<<plan->n, kWarps * 32, 0, plan->stream>>>(
         typed_input, typed_weight, typed_output, plan->n, plan->k, alpha, beta);
   } else {
-    const int blocks = (plan->n + kRowsPerBlock - 1) / kRowsPerBlock;
+    const int blocks = row_blocks(plan->n);
     const int width = (plan->k & 7) == 0 && (address & 15) == 0 ? 8
                       : (plan->k & 1) == 0 && (address & 3) == 0 ? 2
                                                                  : 1;
@@ -305,6 +317,7 @@ int launch(Plan* plan, const void* input, const void* weight, void* output,
 }
 
 bool admits(int n, int k, int kernel, int splits) {
+  if (n <= 0 || k <= 0 || k > kMaxColumns) return false;
   switch (static_cast<Kernel>(kernel)) {
     case Kernel::RowGroups:
       return splits == 1;
@@ -360,6 +373,10 @@ extern "C" int mircuda_dense_vector_create(int data_type, int n, int k,
 
 extern "C" long long mircuda_dense_vector_row_offset(int row, int k) {
   return mircuda::dense_vector::row_offset(row, k);
+}
+
+extern "C" int mircuda_dense_vector_row_blocks(int n) {
+  return mircuda::dense_vector::row_blocks(n);
 }
 
 extern "C" size_t mircuda_dense_vector_workspace_bytes(const void* raw) {

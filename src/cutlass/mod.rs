@@ -26,4 +26,4 @@ pub use variable_grouped::{
     VariableGroupedBf16Spec, VariableGroupedFp4Metadata, VariableGroupedFp4Operands,
     VariableGroupedFp4Plan, VariableGroupedFp4Spec,
 };
-pub use vector::{DenseVectorKernel, DenseVectorPlan, DenseVectorSpec};
+pub use vector::{DENSE_VECTOR_MAX_COLUMNS, DenseVectorKernel, DenseVectorPlan, DenseVectorSpec};

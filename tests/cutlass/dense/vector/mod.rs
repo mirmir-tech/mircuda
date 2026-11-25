@@ -1,7 +1,8 @@
 use std::num::NonZeroU16;
 
 use mircuda::{
-    DenseMatmulPlan, DenseMatmulSpec, DenseVectorKernel, DenseVectorPlan, DenseVectorSpec, bf16,
+    DENSE_VECTOR_MAX_COLUMNS, DenseMatmulPlan, DenseMatmulSpec, DenseVectorKernel, DenseVectorPlan,
+    DenseVectorSpec, bf16,
 };
 
 use super::{copy_device, environment, read_device};
@@ -114,4 +115,15 @@ fn maximum(values: &[bf16]) -> Option<usize> {
         .enumerate()
         .max_by(|left, right| left.1.to_f32().total_cmp(&right.1.to_f32()))
         .map(|(index, _)| index)
+}
+
+/// Every row count up to `i32::MAX` is accepted, and inputs up to the width
+/// whose column loops stay `i32` arithmetic; wider ones are refused.
+#[test]
+fn shapes_admit_every_row_count_and_bounded_widths() {
+    assert!(DenseVectorSpec::new(i32::MAX as usize, 1).is_ok());
+    assert!(DenseVectorSpec::new(1, DENSE_VECTOR_MAX_COLUMNS).is_ok());
+    for k in [DENSE_VECTOR_MAX_COLUMNS + 1, i32::MAX as usize] {
+        assert!(DenseVectorSpec::new(1, k).is_err(), "{k}");
+    }
 }

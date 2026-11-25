@@ -7,6 +7,9 @@ use crate::{Context, DeviceBuffer, Error, Result, Stream};
 
 /// Largest output count that defaults to [`DenseVectorKernel::BlockPerRow`].
 const BLOCK_PER_ROW_DEFAULT_OUTPUTS: usize = 512;
+/// The widest accepted input: a kernel's column loop steps at most 256 past
+/// its last column, which then stays an `i32`.
+pub const DENSE_VECTOR_MAX_COLUMNS: usize = i32::MAX as usize - 255;
 /// Waves of one block per SM that a split-K grid aims to fill.
 const SPLIT_K_TARGET_WAVES: u32 = 2;
 
@@ -24,13 +27,17 @@ impl DenseVectorSpec {
     /// kernel: [`DenseVectorKernel::BlockPerRow`] for router-sized outputs
     /// (`n <= 512`) when `k` admits it, otherwise
     /// [`DenseVectorKernel::RowGroups`]. Tuners choose other kernels through
-    /// [`Self::with_kernel`].
+    /// [`Self::with_kernel`]. `n` may reach `i32::MAX`; `k`, at most
+    /// [`DENSE_VECTOR_MAX_COLUMNS`].
     pub fn new(n: usize, k: usize) -> Result<Self> {
         if n == 0 || k == 0 {
             return Err(Error::InvalidMatmulShape);
         }
         for value in [n, k] {
             let _ = i32::try_from(value)?;
+        }
+        if k > DENSE_VECTOR_MAX_COLUMNS {
+            return Err(Error::InvalidMatmulShape);
         }
         let _ = n.checked_mul(k).ok_or(Error::InvalidMatmulShape)?;
         let kernel = if n <= BLOCK_PER_ROW_DEFAULT_OUTPUTS
