@@ -205,3 +205,6 @@ const fn check(status: i32) -> Result<()> {
         Err(Error::Cutlass(status))
     }
 }
+
+#[cfg(test)]
+mod tests;

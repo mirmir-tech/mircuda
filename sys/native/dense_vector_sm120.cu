@@ -12,6 +12,12 @@ constexpr int kWarps = 8;
 constexpr int kRowsPerWarp = 4;
 constexpr int kRowsPerBlock = kWarps * kRowsPerWarp;
 
+// The first element of weight row `row`: 64-bit, since `n * k` may exceed
+// `INT_MAX` (262145 x 8192 BF16 is about 4 GiB).
+__host__ __device__ inline long long row_offset(int row, int k) {
+  return static_cast<long long>(row) * k;
+}
+
 template <typename Element>
 struct Convert;
 
@@ -72,7 +78,7 @@ __global__ void kernel(const Element* input, const Element* weight,
         const int row = first_row + item;
         if (row < n) {
           const uint4 weight_bits =
-              *reinterpret_cast<const uint4*>(weight + row * k + column);
+              *reinterpret_cast<const uint4*>(weight + row_offset(row, k) + column);
           const unsigned int pairs[4] = {
               weight_bits.x, weight_bits.y, weight_bits.z, weight_bits.w};
 #pragma unroll
@@ -95,7 +101,7 @@ __global__ void kernel(const Element* input, const Element* weight,
         const int row = first_row + item;
         if (row < n) {
           const float2 values =
-              Convert<Element>::pair_to_float(weight + row * k + 2 * pair);
+              Convert<Element>::pair_to_float(weight + row_offset(row, k) + 2 * pair);
           sums[item] = fmaf(input_pair.x, values.x, sums[item]);
           sums[item] = fmaf(input_pair.y, values.y, sums[item]);
         }
@@ -108,7 +114,7 @@ __global__ void kernel(const Element* input, const Element* weight,
       for (int item = 0; item < kRowsPerWarp; ++item) {
         const int row = first_row + item;
         if (row < n) {
-          const float scale = Convert<Element>::to_float(weight[row * k + column]);
+          const float scale = Convert<Element>::to_float(weight[row_offset(row, k) + column]);
           sums[item] = fmaf(value, scale, sums[item]);
         }
       }
@@ -147,7 +153,7 @@ __global__ void row_kernel(const Element* input, const Element* weight,
   const int row = blockIdx.x;
   if (row >= n) return;
   const uint4* in = reinterpret_cast<const uint4*>(input);
-  const uint4* weights = reinterpret_cast<const uint4*>(weight + static_cast<long long>(row) * k);
+  const uint4* weights = reinterpret_cast<const uint4*>(weight + row_offset(row, k));
   const int vectors = k / 8;
   float sum = 0.0f;
   for (int vector = threadIdx.x; vector < vectors; vector += kWarps * 32) {
@@ -210,7 +216,7 @@ __global__ void split_kernel(const Element* input, const Element* weight,
   const int first = static_cast<int>(slice * vectors / splits);
   const int last = static_cast<int>((slice + 1) * vectors / splits);
   const uint4* in = reinterpret_cast<const uint4*>(input);
-  const uint4* weights = reinterpret_cast<const uint4*>(weight + static_cast<long long>(row) * k);
+  const uint4* weights = reinterpret_cast<const uint4*>(weight + row_offset(row, k));
   float sum = 0.0f;
 #pragma unroll 4
   for (int vector = first + threadIdx.x; vector < last; vector += kWarps * 32) {
@@ -350,6 +356,10 @@ extern "C" int mircuda_dense_vector_create(int data_type, int n, int k,
   }
   *output = plan;
   return 0;
+}
+
+extern "C" long long mircuda_dense_vector_row_offset(int row, int k) {
+  return mircuda::dense_vector::row_offset(row, k);
 }
 
 extern "C" size_t mircuda_dense_vector_workspace_bytes(const void* raw) {
