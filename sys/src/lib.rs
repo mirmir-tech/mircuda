@@ -112,6 +112,14 @@ pub enum Error {
     /// Native matrix buffers do not cover their declared shape.
     #[error("CUDA matrix buffers do not match the plan shape")]
     InvalidMatmulBuffer,
+    /// A plan operand's address is not aligned for the kernel's loads.
+    #[error("CUDA {operand} buffer must be {alignment}-byte aligned")]
+    MisalignedOperand {
+        /// Operand name.
+        operand: &'static str,
+        /// Required byte alignment.
+        alignment: usize,
+    },
     /// An ahead-of-time CUTLASS plan rejected construction or execution.
     #[error("CUTLASS plan failed with status {0}")]
     Cutlass(i32),

@@ -163,6 +163,12 @@ impl<T: DenseMatmulElement> DenseVectorPlan<T> {
         validate_len("input", self.spec.k, input.len())?;
         validate_len("weight", self.spec.n * self.spec.k, weight.len())?;
         validate_len("output", self.spec.n, output.len())?;
+        let (kernel, alignment) = (self.spec.kernel, self.spec.kernel.operand_alignment());
+        for (operand, buffer) in [("input", &input.native), ("weight", &weight.native)] {
+            if !buffer.is_aligned(alignment) {
+                return Err(Error::MisalignedOperand { operand, alignment, kernel });
+            }
+        }
         Ok(self
             .native
             .execute(&stream.native, &input.native, &weight.native, &output.native, alpha, beta)?)

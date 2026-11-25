@@ -3,6 +3,7 @@
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
 
+#include <cstdint>
 #include <new>
 
 namespace mircuda::dense_vector {
@@ -46,14 +47,17 @@ struct Convert<__nv_bfloat16> {
   }
 };
 
+// Reads `width` elements per load: 8 (16 bytes) or 2 (4 bytes) when `k` and
+// both operands' addresses allow it, otherwise one.
 template <typename Element>
 __global__ void kernel(const Element* input, const Element* weight,
-                       Element* output, int n, int k, float alpha, float beta) {
+                       Element* output, int n, int k, int width, float alpha,
+                       float beta) {
   const int lane = threadIdx.x & 31;
   const int warp = threadIdx.x >> 5;
   const int first_row = blockIdx.x * kRowsPerBlock + warp * kRowsPerWarp;
   float sums[kRowsPerWarp] = {};
-  if ((k & 7) == 0) {
+  if (width == 8) {
     for (int column = lane * 8; column < k; column += 256) {
       const uint4 input_bits =
           *reinterpret_cast<const uint4*>(input + column);
@@ -81,7 +85,7 @@ __global__ void kernel(const Element* input, const Element* weight,
         }
       }
     }
-  } else if ((k & 1) == 0) {
+  } else if (width == 2) {
     const int pairs = k / 2;
     for (int pair = lane; pair < pairs; pair += 32) {
       const float2 input_pair =
@@ -269,6 +273,10 @@ int launch(Plan* plan, const void* input, const void* weight, void* output,
   const auto* typed_input = static_cast<const Element*>(input);
   const auto* typed_weight = static_cast<const Element*>(weight);
   auto* typed_output = static_cast<Element*>(output);
+  const auto address = reinterpret_cast<uintptr_t>(input) |
+                       reinterpret_cast<uintptr_t>(weight);
+  // Block-per-row and split-K always load 16 bytes; the caller checks.
+  if (plan->kernel != Kernel::RowGroups && (address & 15) != 0) return -1;
   if (plan->kernel == Kernel::SplitK) {
     auto* counters = static_cast<unsigned int*>(plan->workspace);
     auto* partials = reinterpret_cast<float*>(counters + plan->n);
@@ -280,8 +288,12 @@ int launch(Plan* plan, const void* input, const void* weight, void* output,
         typed_input, typed_weight, typed_output, plan->n, plan->k, alpha, beta);
   } else {
     const int blocks = (plan->n + kRowsPerBlock - 1) / kRowsPerBlock;
+    const int width = (plan->k & 7) == 0 && (address & 15) == 0 ? 8
+                      : (plan->k & 1) == 0 && (address & 3) == 0 ? 2
+                                                                 : 1;
     kernel<<<blocks, kWarps * 32, 0, plan->stream>>>(
-        typed_input, typed_weight, typed_output, plan->n, plan->k, alpha, beta);
+        typed_input, typed_weight, typed_output, plan->n, plan->k, width,
+        alpha, beta);
   }
   return static_cast<int>(cudaPeekAtLastError());
 }

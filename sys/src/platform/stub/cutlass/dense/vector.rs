@@ -22,6 +22,19 @@ pub enum DenseVectorKernel {
     },
 }
 
+impl DenseVectorKernel {
+    /// Byte alignment the input and weight must have: the 16-byte vector
+    /// loads of block-per-row and split-K kernels; row groups read whatever
+    /// width both operands' alignment allows.
+    #[must_use]
+    pub const fn operand_alignment(self) -> usize {
+        match self {
+            Self::RowGroups => size_of::<u16>(),
+            Self::BlockPerRow | Self::SplitK { .. } => 16,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DenseVectorSpec {
     pub n: usize,

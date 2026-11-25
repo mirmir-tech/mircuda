@@ -59,6 +59,17 @@ pub struct DenseVectorSpec {
 }
 
 impl DenseVectorKernel {
+    /// Byte alignment the input and weight must have: the 16-byte vector
+    /// loads of block-per-row and split-K kernels; row groups read whatever
+    /// width both operands' alignment allows.
+    #[must_use]
+    pub const fn operand_alignment(self) -> usize {
+        match self {
+            Self::RowGroups => size_of::<u16>(),
+            Self::BlockPerRow | Self::SplitK { .. } => 16,
+        }
+    }
+
     /// Native kernel code and input slices per row.
     const fn native(self) -> (i32, i32) {
         match self {
@@ -138,6 +149,12 @@ impl DenseVectorPlan {
             ensure_stream(buffer, stream)?;
         }
         validate_sizes(self.spec, input, weight, output)?;
+        let alignment = self.spec.kernel.operand_alignment();
+        for (operand, buffer) in [("input", input), ("weight", weight)] {
+            if !buffer.is_aligned(alignment) {
+                return Err(Error::MisalignedOperand { operand, alignment });
+            }
+        }
         self.stream.context().bind_to_thread()?;
         // SAFETY: buffers share the retained stream and satisfy the fixed shape.
         let status = unsafe {

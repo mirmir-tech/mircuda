@@ -6,6 +6,7 @@ use mircuda::{
 
 use super::{copy_device, environment, read_device};
 
+mod alignment;
 mod split;
 
 /// Row-group and block-per-row kernels plus split-K at slice counts that

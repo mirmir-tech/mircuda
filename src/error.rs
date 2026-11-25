@@ -71,6 +71,17 @@ pub enum Error {
         /// Element count supplied at execution.
         actual: usize,
     },
+    /// A buffer's address is not aligned for the selected kernel's loads,
+    /// such as a view starting at an odd element.
+    #[error("{operand} buffer must be {alignment}-byte aligned for {kernel:?}")]
+    MisalignedOperand {
+        /// Operand name.
+        operand: &'static str,
+        /// Required byte alignment.
+        alignment: usize,
+        /// Kernel whose loads need it.
+        kernel: crate::DenseVectorKernel,
+    },
     /// The selected dense vector kernel cannot execute this plan shape.
     #[error("dense vector kernel {kernel:?} does not admit n={n}, k={k}")]
     VectorKernelShape {
