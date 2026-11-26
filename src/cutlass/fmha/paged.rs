@@ -4,6 +4,10 @@ use crate::{DeviceBuffer, DeviceElement, Result, Stream, bf16};
 impl FmhaBf16Plan {
     /// Enqueues split-KV full or sliding causal `FlashAttention` 2 over paged
     /// K/V and merges partials.
+    ///
+    /// Every sequence must hold `max_query_tokens` queries, so
+    /// `total_query_tokens == batch_size * max_query_tokens`; other batches
+    /// are rejected as invalid buffers.
     #[allow(clippy::too_many_arguments)]
     pub fn execute_paged_varlen_split<T: DeviceElement>(
         &self,

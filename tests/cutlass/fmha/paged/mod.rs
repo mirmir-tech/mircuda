@@ -5,6 +5,7 @@ use super::{
 };
 
 mod decode;
+mod split;
 mod window;
 
 const PAGE_SIZE: usize = 16;

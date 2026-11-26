@@ -95,14 +95,17 @@ impl Stream {
         };
         // A panic in `operation` drops `capture`, which discards it and
         // releases the capture gate.
-        let operation_result = operation(&mut resources);
-        let graph_result = capture.end().map_err(crate::Error::from);
-        if let Err(error) = operation_result {
+        if let Err(error) = operation(&mut resources) {
+            // Dropping the capture discards it without instantiating its
+            // graph. The failed operation is the error to report: dropping
+            // keeps the invalidation it may have caused off the context and
+            // records any other failure there for the next call.
+            drop(capture);
             return Err((error, resources));
         }
-        match graph_result {
+        match capture.end() {
             Ok(native) => Ok(Graph { native, resources }),
-            Err(error) => Err((error.into(), resources)),
+            Err(error) => Err((crate::Error::from(error).into(), resources)),
         }
     }
 }

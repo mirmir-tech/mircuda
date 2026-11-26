@@ -28,9 +28,11 @@ struct Patch {
 
 /// Packing a GQA group's query heads into the row axis (`seqlenq_ngroups_swapped`)
 /// shares each K/V load across the group. In decode every packed row is the same
-/// query token, so `rows_share_position` makes the window mask and the first K/V
-/// block use the last query position for all rows instead of each row's index.
-const PATCHES: [Patch; 7] = [
+/// query token, so `rows_share_position` makes the window mask and the first and
+/// last K/V blocks use the last query position for all rows instead of each
+/// row's index. A group wider than one row block (`kBlockM`) spans several
+/// blocks, and each must still reach the newest key.
+const PATCHES: [Patch; 8] = [
     Patch {
         file: "flash.h",
         from: "(b, ngroups, nheads_kv, d).\n};",
@@ -71,14 +73,25 @@ const PATCHES: [Patch; 7] = [
              params.rows_share_position);",
         count: 2,
     },
-    // The first K/V block of a split: shared rows start at the last query row.
+    // The first K/V block, with and without splits: shared rows start at the
+    // last query row.
     Patch {
         file: "flash_fwd_kernel.h",
-        from: ": std::max(n_split_idx * n_blocks_per_split, (m_block * kBlockM + \
-               binfo.actual_seqlen_k",
-        to: ": std::max(n_split_idx * n_blocks_per_split, ((params.rows_share_position ? \
-             binfo.actual_seqlen_q - 1 : m_block * kBlockM) + binfo.actual_seqlen_k",
-        count: 1,
+        from: "(m_block * kBlockM + binfo.actual_seqlen_k - binfo.actual_seqlen_q - \
+               params.window_size_left) / kBlockN",
+        to: "((params.rows_share_position ? binfo.actual_seqlen_q - 1 : m_block * kBlockM) + \
+             binfo.actual_seqlen_k - binfo.actual_seqlen_q - params.window_size_left) / kBlockN",
+        count: 2,
+    },
+    // The K/V block past the last, with and without splits: shared rows end at
+    // the last query row in every row block, not at the block's last row.
+    Patch {
+        file: "flash_fwd_kernel.h",
+        from: "(m_block + 1) * kBlockM + binfo.actual_seqlen_k - binfo.actual_seqlen_q + \
+               params.window_size_right",
+        to: "(params.rows_share_position ? binfo.actual_seqlen_q : (m_block + 1) * kBlockM) + \
+             binfo.actual_seqlen_k - binfo.actual_seqlen_q + params.window_size_right",
+        count: 2,
     },
 ];
 

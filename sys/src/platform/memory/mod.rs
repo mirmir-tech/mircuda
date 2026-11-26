@@ -91,6 +91,7 @@ impl MemoryPool {
             bytes,
             stream: stream.inner.clone(),
             foreign: Arc::default(),
+            capture: super::capture_gate::capture_of(&stream.inner),
             owner: None,
         })
     }
@@ -102,6 +103,9 @@ pub struct DeviceBuffer {
     bytes: usize,
     stream: Arc<CudaStream>,
     foreign: Arc<ForeignStreams>,
+    /// The capture that allocated the buffer as a graph allocation, which
+    /// its free may join; `None` when it was allocated outside any capture.
+    capture: Option<super::capture_gate::CaptureId>,
     owner: Option<Arc<Self>>,
 }
 

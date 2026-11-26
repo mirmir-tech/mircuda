@@ -10,31 +10,31 @@ use super::{
     PAGE_SIZE,
 };
 
-const QUERY_HEADS: usize = 8;
 const LENGTHS: [usize; 2] = [300, 517];
+/// One query token per sequence: the dense decode batch that packs GQA rows.
+const DECODE: [usize; 2] = [1, 1];
 
 /// Windowed GQA decode packs each group's query heads into one K/V pass.
 /// Replicating K/V per query head runs the same attention unpacked, so both
-/// must agree for windows that cut through K/V blocks and splits.
+/// must agree for windows that cut through K/V blocks and splits. A group of
+/// 128 query heads spans two 64-row blocks, and each must reach the newest
+/// keys.
 #[test]
 fn grouped_windowed_decode_matches_ungrouped_heads() -> mircuda::Result<()> {
     let (context, stream, pool) = environment()?;
-    for (kv_heads, head_dim) in [(2, 256), (4, 128), (1, 64)] {
-        let shape = Shape { kv_heads, head_dim };
+    for (query_heads, kv_heads, head_dim) in [(8, 2, 256), (8, 4, 128), (8, 1, 64), (128, 1, 128)] {
+        let shape = Shape { query_heads, kv_heads, head_dim };
         for window in [128, 100, 1] {
-            let window = FmhaCausalWindow::Sliding(
-                NonZeroUsize::new(window).ok_or(mircuda::Error::InvalidLaunch)?,
-            );
+            let window = sliding(window)?;
             for splits in [1, 3, 8] {
-                let grouped =
-                    attend(&context, &stream, &pool, shape, shape.kv_heads, window, splits)?;
-                let ungrouped =
-                    attend(&context, &stream, &pool, shape, QUERY_HEADS, window, splits)?;
-                let error = maximum_error(&ungrouped, &grouped);
+                let run = |stored_heads| {
+                    attend(&context, &stream, &pool, shape, stored_heads, window, splits, DECODE)
+                };
+                let error = maximum_error(&run(query_heads)?, &run(kv_heads)?);
                 assert!(
                     error <= 0.007_812_5,
-                    "{kv_heads} K/V heads, head dim {head_dim}, {window:?}, {splits} splits: \
-                     grouped decode differs by {error}"
+                    "{query_heads}/{kv_heads} heads, head dim {head_dim}, {window:?}, {splits} \
+                     splits: grouped decode differs by {error}"
                 );
             }
         }
@@ -42,14 +42,45 @@ fn grouped_windowed_decode_matches_ungrouped_heads() -> mircuda::Result<()> {
     Ok(())
 }
 
+/// A decode batch whose first sequence has no query token holds fewer
+/// queries than sequences. Its rows follow `query_starts`, so grouped decode
+/// must not pack them by sequence index, and split-KV, which merges rows by
+/// sequence index, must refuse the batch.
+#[test]
+fn grouped_decode_follows_query_starts_past_an_empty_sequence() -> mircuda::Result<()> {
+    let (context, stream, pool) = environment()?;
+    let shape = Shape {
+        query_heads: 8,
+        kv_heads: 2,
+        head_dim: 128,
+    };
+    let window = sliding(100)?;
+    let run = |stored_heads, splits| {
+        attend(&context, &stream, &pool, shape, stored_heads, window, splits, [0, 1])
+    };
+    let error = maximum_error(&run(shape.query_heads, 1)?, &run(shape.kv_heads, 1)?);
+    assert!(error <= 0.007_812_5, "grouped decode past an empty sequence differs by {error}");
+    assert!(run(shape.kv_heads, 3).is_err(), "split-KV accepted a sparse decode batch");
+    Ok(())
+}
+
+fn sliding(window: usize) -> mircuda::Result<FmhaCausalWindow> {
+    Ok(FmhaCausalWindow::Sliding(
+        NonZeroUsize::new(window).ok_or(mircuda::Error::InvalidLaunch)?,
+    ))
+}
+
 #[derive(Clone, Copy)]
 struct Shape {
+    query_heads: usize,
     kv_heads: usize,
     head_dim: usize,
 }
 
-/// Decodes one query token per sequence with `stored_heads` K/V heads, where
-/// a stored head `h` holds the K/V of logical head `h * kv_heads / stored_heads`.
+/// Decodes `queries[s]` (zero or one) query tokens of each sequence `s` with
+/// `stored_heads` K/V heads, where a stored head `h` holds the K/V of logical
+/// head `h * kv_heads / stored_heads`.
+#[allow(clippy::too_many_arguments)]
 fn attend(
     context: &Context,
     stream: &Stream,
@@ -58,9 +89,11 @@ fn attend(
     stored_heads: usize,
     window: FmhaCausalWindow,
     splits: usize,
+    queries: [usize; 2],
 ) -> mircuda::Result<Vec<bf16>> {
     let tokens = LENGTHS.iter().sum();
-    let query = values(LENGTHS.len(), QUERY_HEADS, shape.head_dim, 19);
+    let rows = queries.iter().sum::<usize>();
+    let query = values(rows, shape.query_heads, shape.head_dim, 19);
     let keys = replicate(&values(tokens, shape.kv_heads, shape.head_dim, 23), shape, stored_heads);
     let value = replicate(&values(tokens, shape.kv_heads, shape.head_dim, 29), shape, stored_heads);
     let blocks = LENGTHS.map(|length| length.div_ceil(PAGE_SIZE));
@@ -91,7 +124,8 @@ fn attend(
         bytes(&pages)
     };
     let [first, second] = LENGTHS.map(|length| u32::try_from(length).unwrap_or(u32::MAX));
-    let query_starts = copy_device(context, stream, pool, &[0_u32, 1, 2])?;
+    let [leading, trailing] = queries.map(|count| u32::try_from(count).unwrap_or(u32::MAX));
+    let query_starts = copy_device(context, stream, pool, &[0, leading, leading + trailing])?;
     let context_starts = copy_device(context, stream, pool, &[0_u32, first, first + second])?;
     let token_counts = copy_device(context, stream, pool, &[first, second])?;
     let block_table = copy_device(context, stream, pool, &table)?;
@@ -99,17 +133,17 @@ fn attend(
     let key_pages = copy_device(context, stream, pool, &page(&keys))?;
     let value_pages = copy_device(context, stream, pool, &page(&value))?;
     let mut output = pool.allocate_zeroed::<bf16>(stream, query.len())?;
-    let rows = LENGTHS.len() * QUERY_HEADS;
-    let mut lse = pool.allocate_zeroed::<f32>(stream, rows)?;
+    let lse_rows = rows * shape.query_heads;
+    let mut lse = pool.allocate_zeroed::<f32>(stream, lse_rows)?;
     let mut output_accum = pool.allocate_zeroed::<f32>(stream, splits * query.len())?;
-    let mut lse_accum = pool.allocate_zeroed::<f32>(stream, splits * rows)?;
+    let mut lse_accum = pool.allocate_zeroed::<f32>(stream, splits * lse_rows)?;
     let plan = FmhaBf16Plan::new(
         context,
         stream,
-        FmhaBf16Spec::new(QUERY_HEADS, stored_heads, shape.head_dim, shape.head_dim)?,
+        FmhaBf16Spec::new(shape.query_heads, stored_heads, shape.head_dim, shape.head_dim)?,
     )?;
     let scale = f32::from(u16::try_from(shape.head_dim)?).sqrt().recip();
-    let (rows, sequences) = (LENGTHS.len(), LENGTHS.len());
+    let sequences = LENGTHS.len();
     if splits == 1 {
         plan.execute_paged_varlen_windowed(
             stream, &query_device, &key_pages, &value_pages, &mut output, &query_starts,

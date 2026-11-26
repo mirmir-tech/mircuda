@@ -20,10 +20,16 @@ int launch_typed(
     int window_size_left, float scale, cudaStream_t stream) {
   const bool is_decode = max_query_tokens == 1;
   const bool is_local = window_size_left >= 0;
+  // Every sequence holds `max_query_tokens` queries, so query row `i` of
+  // sequence `b` is packed row `b * max_query_tokens + i`. Packed GQA rows and
+  // the split-KV merge both address queries this way instead of through
+  // `query_starts`; a batch with shorter or empty sequences must not use them.
+  const bool dense = static_cast<int64_t>(total_query_tokens) ==
+                     static_cast<int64_t>(batch_size) * max_query_tokens;
   // Decode packs each GQA group's query heads into the row axis so the group
   // shares every K/V load. The packed rows are one query token, so a window
   // mask must place all of them at that token's position, not at their rows.
-  const bool transpose_gqa = is_decode && query_heads > kv_heads;
+  const bool transpose_gqa = is_decode && dense && query_heads > kv_heads;
   const int query_groups = query_heads / kv_heads;
   const int effective_query_tokens = transpose_gqa ? query_groups : max_query_tokens;
   const int effective_query_heads = transpose_gqa ? kv_heads : query_heads;
@@ -47,8 +53,11 @@ int launch_typed(
   params.k_head_stride = HeadDim;
   params.v_head_stride = HeadDim;
   params.o_head_stride = params.q_head_stride;
-  params.q_batch_stride = query_heads * HeadDim;
-  params.o_batch_stride = query_heads * HeadDim;
+  // Varlen attention places rows through `query_starts`; the split-KV merge
+  // and packed GQA rows use these dense batch strides instead.
+  params.q_batch_stride =
+      static_cast<int64_t>(max_query_tokens) * query_heads * HeadDim;
+  params.o_batch_stride = params.q_batch_stride;
   params.k_batch_stride = page_block_size * params.k_row_stride;
   params.v_batch_stride = page_block_size * params.v_row_stride;
   params.block_table_batch_stride = max_blocks;
@@ -141,6 +150,8 @@ extern "C" int mircuda_flash_attn2_paged_bf16_execute_split(
       softmax_lse == nullptr || stream == nullptr ||
       num_splits <= 0 ||
       (num_splits > 1 && (output_accum == nullptr || softmax_lse_accum == nullptr)) ||
+      (num_splits > 1 && static_cast<int64_t>(total_query_tokens) !=
+                             static_cast<int64_t>(batch_size) * max_query_tokens) ||
       total_query_tokens <= 0 || max_query_tokens <= 0 ||
       max_context_tokens < max_query_tokens || batch_size <= 0 ||
       max_blocks <= 0 || page_block_size <= 0 ||

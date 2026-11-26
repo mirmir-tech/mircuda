@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use cudarc::driver::{CudaContext, CudaStream, sys::CUdevice_attribute};
+use cudarc::driver::{CudaContext, CudaStream, DriverError, result, sys::CUdevice_attribute};
 
 use crate::Result;
 
@@ -79,4 +79,12 @@ pub struct DeviceInfo {
     pub total_memory: usize,
     pub memory_pools: bool,
     pub integrated: bool,
+}
+
+/// Makes `context` current on this thread through the driver alone. Unlike
+/// cudarc's bind, it neither consumes nor fails on an error that an earlier
+/// operation recorded on the context for its next caller.
+pub(super) fn make_current(context: &CudaContext) -> std::result::Result<(), DriverError> {
+    // SAFETY: the borrowed context is live.
+    unsafe { result::ctx::set_current(context.cu_ctx()) }
 }
