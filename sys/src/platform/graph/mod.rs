@@ -182,11 +182,14 @@ impl Drop for Graph {
         let context = self.stream.context();
         // Raw driver calls leave an error another operation recorded on the
         // context in place.
-        let current = bind_current(context);
-        // SAFETY: this object solely owns both live graph handles.
-        context.record_err(unsafe { result::graph::exec_destroy(self.executable) });
-        // SAFETY: executable was destroyed first and raw is still live.
-        context.record_err(unsafe { result::graph::destroy(self.raw) });
-        context.record_err(current.map(drop));
+        match bind_current(context) {
+            Ok(_current) => {
+                // SAFETY: this object solely owns both live graph handles.
+                context.record_err(unsafe { result::graph::exec_destroy(self.executable) });
+                // SAFETY: executable was destroyed first and raw is still live.
+                context.record_err(unsafe { result::graph::destroy(self.raw) });
+            },
+            Err(error) => context.record_err::<()>(Err(error)),
+        }
     }
 }
