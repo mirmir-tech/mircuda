@@ -9,9 +9,42 @@ repository.workspace = true
 keywords = ["cuda", "gpu", "nvidia", "inference"]
 categories = ["api-bindings", "hardware-support"]
 
+[[example]]
+name = "dense-vector"
+required-features = ["cublaslt", "cutlass"]
+
+[[example]]
+name = "fp4-vector"
+required-features = ["cutlass"]
+
+[[example]]
+name = "graph"
+required-features = ["cutlass"]
+
+[[example]]
+name = "grouped-bf16"
+required-features = ["cutlass"]
+
+[[example]]
+name = "grouped-fp4"
+required-features = ["cutlass"]
+
+[[example]]
+name = "matmul"
+required-features = ["cutlass"]
+
+[[example]]
+name = "mxfp8-prefill"
+required-features = ["cutlass"]
+
+[[example]]
+name = "qwen3-matmul"
+required-features = ["cublaslt", "cutlass"]
+
 [[test]]
 name = "cutlass"
 path = "tests/cutlass/mod.rs"
+required-features = ["cutlass"]
 
 [[test]]
 name = "interop"

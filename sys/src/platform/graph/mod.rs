@@ -8,7 +8,7 @@ pub use capture::Capture;
 
 use super::{
     compiler::{Kernel, KernelArgument, LaunchConfig},
-    driver::Stream,
+    driver::{Stream, bind_current},
 };
 use crate::{Error, Result};
 
@@ -180,10 +180,13 @@ fn kernel_function(node: sys::CUgraphNode) -> Result<Option<sys::CUfunction>> {
 impl Drop for Graph {
     fn drop(&mut self) {
         let context = self.stream.context();
-        context.record_err(context.bind_to_thread());
+        // Raw driver calls leave an error another operation recorded on the
+        // context in place.
+        let current = bind_current(context);
         // SAFETY: this object solely owns both live graph handles.
         context.record_err(unsafe { result::graph::exec_destroy(self.executable) });
         // SAFETY: executable was destroyed first and raw is still live.
         context.record_err(unsafe { result::graph::destroy(self.raw) });
+        context.record_err(current.map(drop));
     }
 }

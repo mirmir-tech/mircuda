@@ -6,7 +6,7 @@ use mircuda::{MxFp8EmbeddingSpec, MxFp8GatheredSpec, MxFp8Spec};
 
 #[cfg(target_os = "linux")]
 mod gathered;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "cutlass"))]
 mod matmul;
 #[cfg(target_os = "linux")]
 mod quantize;

@@ -73,6 +73,7 @@ pub enum Error {
     },
     /// A buffer's address is not aligned for the selected kernel's loads,
     /// such as a view starting at an odd element.
+    #[cfg(feature = "cutlass")]
     #[error("{operand} buffer must be {alignment}-byte aligned for {kernel:?}")]
     MisalignedOperand {
         /// Operand name.
@@ -83,6 +84,7 @@ pub enum Error {
         kernel: crate::DenseVectorKernel,
     },
     /// The selected dense vector kernel cannot execute this plan shape.
+    #[cfg(feature = "cutlass")]
     #[error("dense vector kernel {kernel:?} does not admit n={n}, k={k}")]
     VectorKernelShape {
         /// Kernel rejected for the shape.

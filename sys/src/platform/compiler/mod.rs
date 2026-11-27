@@ -8,7 +8,7 @@ use cudarc::{
 };
 
 pub use self::cubin::CompiledCubin;
-use super::driver::{Context, Stream};
+use super::driver::{Context, Stream, bind_current};
 use crate::Result;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -80,9 +80,12 @@ unsafe impl Sync for ModuleInner {}
 
 impl Drop for ModuleInner {
     fn drop(&mut self) {
-        self.context.record_err(self.context.bind_to_thread());
+        // Raw driver calls leave an error another operation recorded on the
+        // context in place, and the module unloads from its own context.
         // SAFETY: this is the sole owner of the loaded module handle.
-        self.context.record_err(unsafe { result::module::unload(self.handle) });
+        let unloaded = bind_current(&self.context)
+            .and_then(|_current| unsafe { result::module::unload(self.handle) });
+        self.context.record_err(unloaded);
     }
 }
 

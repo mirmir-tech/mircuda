@@ -3,7 +3,7 @@ use std::sync::Arc;
 use cudarc::driver::{CudaStream, result, sys};
 
 use super::{
-    super::{capture_gate, driver::make_current},
+    super::{capture_gate, driver::bind_current},
     DeviceBuffer,
     foreign::order_before,
 };
@@ -48,6 +48,7 @@ impl DeviceBuffer {
         }
     }
 
+    #[cfg(any(feature = "cublaslt", feature = "cutlass", feature = "marlin"))]
     #[must_use]
     pub(in crate::platform) const fn pointer(&self) -> sys::CUdeviceptr {
         self.pointer
@@ -60,10 +61,12 @@ impl Drop for DeviceBuffer {
             return;
         }
         let foreign = self.foreign.take();
-        if foreign.is_empty() && capture_gate::idle() {
-            // No capture can take the free, and the work queued on the
-            // allocation stream precedes it.
-            free(self.pointer, &self.stream);
+        // The gate stays held from finding no capture through the free, so
+        // no capture can begin and take the free, and the work queued on the
+        // allocation stream precedes it.
+        if foreign.is_empty()
+            && capture_gate::release_when_idle(|| free(self.pointer, &self.stream))
+        {
             return;
         }
         let (pointer, stream) = (self.pointer, self.stream.clone());
@@ -86,7 +89,8 @@ fn release(
     stream: Arc<CudaStream>,
     foreign: &[Arc<CudaStream>],
 ) -> Result<(), capture_gate::Teardown> {
-    let ordered = make_current(stream.context()).and_then(|()| order_before(foreign, &stream));
+    let ordered = bind_current(stream.context())
+        .and_then(|current| order_before(foreign, &stream).map(|()| current));
     if let Err(error) = ordered {
         // Without the stream ordering the free could overtake foreign work,
         // so it waits for the whole context instead.
@@ -102,8 +106,9 @@ fn release(
 fn synchronized_free(pointer: sys::CUdeviceptr, stream: Arc<CudaStream>) -> capture_gate::Teardown {
     Box::new(move || {
         let context = stream.context();
-        match make_current(context).and_then(|()| result::ctx::synchronize()) {
-            Ok(()) => free(pointer, &stream),
+        match bind_current(context).and_then(|current| result::ctx::synchronize().map(|()| current))
+        {
+            Ok(_current) => free(pointer, &stream),
             Err(error) => context.record_err::<()>(Err(error)),
         }
     })
@@ -115,9 +120,9 @@ fn synchronized_free(pointer: sys::CUdeviceptr, stream: Arc<CudaStream>) -> capt
 fn free(pointer: sys::CUdeviceptr, stream: &CudaStream) {
     let context = stream.context();
     // SAFETY: the caller owns the allocation and ordered its uses, and the
-    // context is made current first.
-    let freed = make_current(context)
-        .and_then(|()| unsafe { result::free_async(pointer, stream.cu_stream()) });
+    // context is current for the free.
+    let freed = bind_current(context)
+        .and_then(|_current| unsafe { result::free_async(pointer, stream.cu_stream()) });
     context.record_err(freed);
 }
 

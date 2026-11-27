@@ -2,13 +2,12 @@
 
 use std::{
     any::Any,
-    panic::AssertUnwindSafe,
     sync::{Arc, atomic::Ordering},
 };
 
 use cudarc::driver::{CudaStream, DriverError, sys};
 
-use super::{ACTIVE, State, Teardown};
+use super::{super::driver::bind_current, ACTIVE, Teardown};
 
 /// The capture a stream records into, as the driver identifies it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -40,31 +39,24 @@ impl Deferred {
         }
         match self {
             Self::Device(_) => true,
-            Self::Ordered(ordered) => {
-                ordered.streams.iter().any(|stream| match capture(stream.cu_stream()) {
-                    Ok(None) => false,
-                    Ok(Some(id)) => ordered.own != Some(id),
-                    Err(_) => true,
-                })
-            },
+            Self::Ordered(ordered) => ordered.streams.iter().any(|stream| match capture(stream) {
+                Ok(None) => false,
+                Ok(Some(id)) => ordered.own != Some(id),
+                Err(_) => true,
+            }),
         }
     }
 
-    /// Runs the teardown. A failed stream ordering leaves its fallback to run
-    /// once no capture is in progress.
-    pub(super) fn run(self, state: &mut State) {
+    /// Runs the teardown. A failed stream ordering returns its
+    /// device-synchronizing fallback, for the gate to run once no capture
+    /// is in progress.
+    pub(super) fn run(self) -> Option<Self> {
         match self {
-            Self::Device(teardown) => teardown(),
-            Self::Ordered(ordered) => {
-                if let Err(fallback) = (ordered.release)() {
-                    let fallback = Self::Device(fallback);
-                    if fallback.blocked(state.active) {
-                        state.deferred.push(fallback);
-                    } else {
-                        fallback.run(state);
-                    }
-                }
+            Self::Device(teardown) => {
+                teardown();
+                None
             },
+            Self::Ordered(ordered) => (ordered.release)().err().map(Self::Device),
         }
     }
 }
@@ -72,32 +64,19 @@ impl Deferred {
 /// A panic raised by a deferred teardown.
 pub(super) type Panic = Box<dyn Any + Send>;
 
-/// Runs every deferred teardown that no capture blocks any more and keeps the
-/// rest. A panicking teardown does not keep the others from running; the
-/// first panic is returned for the caller to resume once the gate is free.
-pub(super) fn run_ready(state: &mut State) -> Option<Panic> {
-    let mut panic = None;
-    for entry in std::mem::take(&mut state.deferred) {
-        if entry.blocked(state.active) {
-            state.deferred.push(entry);
-        } else if let Err(payload) = std::panic::catch_unwind(AssertUnwindSafe(|| entry.run(state)))
-        {
-            panic.get_or_insert(payload);
-        }
-    }
-    panic
-}
-
 /// The capture `stream` records into, or `None` when it is not capturing.
-fn capture(stream: sys::CUstream) -> Result<Option<CaptureId>, DriverError> {
+/// The query needs the stream's context current, whichever context the
+/// releasing thread last used.
+fn capture(stream: &CudaStream) -> Result<Option<CaptureId>, DriverError> {
+    let _current = bind_current(stream.context())?;
     let mut status = sys::CUstreamCaptureStatus::CU_STREAM_CAPTURE_STATUS_NONE;
     let mut id = 0;
-    // SAFETY: the caller keeps `stream` alive, both outputs are writable, and
-    // the optional graph and dependency outputs are null. The query enqueues
-    // nothing.
+    // SAFETY: the stream is live and its context current, both outputs are
+    // writable, and the optional graph and dependency outputs are null. The
+    // query enqueues nothing.
     unsafe {
         sys::cuStreamGetCaptureInfo_v3(
-            stream,
+            stream.cu_stream(),
             &raw mut status,
             &raw mut id,
             std::ptr::null_mut(),
@@ -117,5 +96,5 @@ pub(in crate::platform) fn capture_of(stream: &CudaStream) -> Option<CaptureId> 
     if ACTIVE.load(Ordering::Acquire) == 0 {
         return None;
     }
-    capture(stream.cu_stream()).ok().flatten()
+    capture(stream).ok().flatten()
 }

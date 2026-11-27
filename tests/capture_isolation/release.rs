@@ -1,9 +1,13 @@
 //! Teardown on other threads, or inside another capture, stays out of every
 //! capture in progress.
 
-use mircuda::{DeviceBuffer, LaunchConfig, Stream, TypedKernel};
+use mircuda::LaunchConfig;
+#[cfg(feature = "cublaslt")]
+use mircuda::{DeviceBuffer, Stream, TypedKernel};
 
-use super::{Fixture, Increment, new_context};
+#[cfg(feature = "cublaslt")]
+use super::Increment;
+use super::{Fixture, new_context};
 
 #[test]
 fn capture_survives_a_new_context_stream_on_another_thread() -> mircuda::Result<()> {

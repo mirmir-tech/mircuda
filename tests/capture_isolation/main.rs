@@ -2,7 +2,8 @@
 
 //! Work on other threads of the same device must not invalidate a
 //! thread-local capture: neither another runtime starting up, nor the release
-//! of a buffer used on several streams, nor the release of a cuBLAS handle.
+//! of a buffer used on several streams, nor the release of a cuBLAS handle or
+//! of a CUTLASS plan's workspace.
 //! A capture that ends early, by a panic or a failed begin, must release the
 //! capture gate so that later teardown runs instead of staying deferred.
 
@@ -22,6 +23,8 @@ use mircuda::{
 
 mod allocation;
 mod lifecycle;
+#[cfg(feature = "cutlass")]
+mod plan;
 mod release;
 
 cuda_export!(Increment = "increment"(value: &mut DeviceBuffer<u32>, delta: u32));

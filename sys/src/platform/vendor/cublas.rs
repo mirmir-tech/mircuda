@@ -141,14 +141,11 @@ impl Drop for CublasDensePlan {
     fn drop(&mut self) {
         // Releasing the last plan of a stream destroys its cuBLAS handle,
         // which synchronizes the device: keep that out of running captures.
-        let plan = capture_gate::NativePlan::new(self.raw.as_ptr());
-        let stream = self.stream.clone();
-        capture_gate::release(move || {
-            stream.context().record_err(stream.context().bind_to_thread());
-            // SAFETY: the teardown solely owns the native plan, and `stream`
-            // outlives the stream-ordered release of its workspace.
-            unsafe { mircuda_cublas_dense_destroy(plan.into_raw()) };
-        });
+        // SAFETY: this is the sole owner of the native plan, and its
+        // destructor enqueues work on the plan stream only.
+        unsafe {
+            capture_gate::release_device_plan(&self.stream, self.raw, mircuda_cublas_dense_destroy);
+        }
     }
 }
 

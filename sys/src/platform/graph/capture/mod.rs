@@ -5,7 +5,10 @@ use std::marker::PhantomData;
 use cudarc::driver::{result, sys};
 
 use super::{
-    super::{capture_gate, driver::make_current},
+    super::{
+        capture_gate,
+        driver::{bind_current, make_current},
+    },
     CaptureMode, Graph,
 };
 use crate::{Error, Result, platform::driver::Stream};
@@ -82,16 +85,15 @@ impl Drop for Capture<'_> {
     fn drop(&mut self) {
         if self.open {
             let stream = &self.stream.inner;
-            // SAFETY: the capture this guard began is still active on the stream.
-            let ended = make_current(stream.context())
-                .and_then(|()| unsafe { result::stream::end_capture(stream.cu_stream()) })
-                .and_then(|raw| {
-                    if raw.is_null() {
-                        return Ok(());
-                    }
-                    // SAFETY: raw is the discarded capture's graph, owned here.
-                    unsafe { result::graph::destroy(raw) }
-                });
+            let ended = bind_current(stream.context()).and_then(|_current| {
+                // SAFETY: the capture this guard began is still active on the stream.
+                let raw = unsafe { result::stream::end_capture(stream.cu_stream()) }?;
+                if raw.is_null() {
+                    return Ok(());
+                }
+                // SAFETY: raw is the discarded capture's graph, owned here.
+                unsafe { result::graph::destroy(raw) }
+            });
             if ended.is_err_and(|error| {
                 error.0 != sys::cudaError_enum::CUDA_ERROR_STREAM_CAPTURE_INVALIDATED
             }) {
