@@ -2,9 +2,13 @@ use std::sync::Arc;
 
 use cudarc::driver::{CudaStream, result, sys};
 
+mod capture;
+
+pub use capture::Capture;
+
 use super::{
     compiler::{Kernel, KernelArgument, LaunchConfig},
-    driver::Stream,
+    driver::{Stream, bind_current},
 };
 use crate::{Error, Result};
 
@@ -53,40 +57,6 @@ impl std::fmt::Debug for Graph {
 }
 
 impl Stream {
-    pub fn begin_capture(&self, mode: CaptureMode) -> Result<()> {
-        Ok(self.inner.begin_capture(mode.native())?)
-    }
-
-    pub fn end_capture(&self) -> Result<Graph> {
-        self.inner.context().bind_to_thread()?;
-        // SAFETY: capture is active on this live stream.
-        let raw = unsafe { result::stream::end_capture(self.inner.cu_stream())? };
-        if raw.is_null() {
-            return Err(Error::EmptyGraph);
-        }
-        let mut executable = std::ptr::null_mut();
-        // SAFETY: raw is a live captured graph and zero requests default instantiation.
-        let instantiated = unsafe { sys::cuGraphInstantiateWithFlags(&raw mut executable, raw, 0) };
-        if let Err(source) = instantiated.result() {
-            // SAFETY: raw was returned by the successful capture above.
-            let _result = unsafe { result::graph::destroy(raw) };
-            return Err(source.into());
-        }
-        // SAFETY: executable and stream are live and belong to the bound context.
-        if let Err(source) = unsafe { result::graph::upload(executable, self.inner.cu_stream()) } {
-            // SAFETY: both handles were created successfully in this function.
-            let _exec_result = unsafe { result::graph::exec_destroy(executable) };
-            // SAFETY: raw remains live until this matching destroy.
-            let _graph_result = unsafe { result::graph::destroy(raw) };
-            return Err(source.into());
-        }
-        Ok(Graph {
-            raw,
-            executable,
-            stream: self.inner.clone(),
-        })
-    }
-
     pub fn captured_kernel_node(&self, kernel: &Kernel) -> Result<KernelNode> {
         self.inner.context().bind_to_thread()?;
         let mut status = std::mem::MaybeUninit::uninit();
@@ -210,10 +180,16 @@ fn kernel_function(node: sys::CUgraphNode) -> Result<Option<sys::CUfunction>> {
 impl Drop for Graph {
     fn drop(&mut self) {
         let context = self.stream.context();
-        context.record_err(context.bind_to_thread());
-        // SAFETY: this object solely owns both live graph handles.
-        context.record_err(unsafe { result::graph::exec_destroy(self.executable) });
-        // SAFETY: executable was destroyed first and raw is still live.
-        context.record_err(unsafe { result::graph::destroy(self.raw) });
+        // Raw driver calls leave an error another operation recorded on the
+        // context in place.
+        match bind_current(context) {
+            Ok(_current) => {
+                // SAFETY: this object solely owns both live graph handles.
+                context.record_err(unsafe { result::graph::exec_destroy(self.executable) });
+                // SAFETY: executable was destroyed first and raw is still live.
+                context.record_err(unsafe { result::graph::destroy(self.raw) });
+            },
+            Err(error) => context.record_err::<()>(Err(error)),
+        }
     }
 }

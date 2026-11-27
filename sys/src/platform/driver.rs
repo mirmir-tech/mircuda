@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use cudarc::driver::{CudaContext, CudaStream, sys::CUdevice_attribute};
+use cudarc::driver::{
+    CudaContext, CudaStream, DriverError, result,
+    sys::{CUcontext, CUdevice_attribute},
+};
 
 use crate::Result;
 
@@ -18,7 +21,14 @@ impl Driver {
     }
 
     pub fn create_context(&self, ordinal: usize) -> Result<Context> {
-        Ok(Context { inner: CudaContext::new(ordinal)? })
+        let inner = CudaContext::new(ordinal)?;
+        // SAFETY: event tracking only orders cudarc's own `CudaSlice` views,
+        // which mircuda never creates: device buffers record their foreign
+        // streams and order their frees explicitly. Left on, cudarc would
+        // synchronize the shared primary context when the first stream is
+        // created, invalidating stream captures on other threads.
+        unsafe { inner.disable_event_tracking() };
+        Ok(Context { inner })
     }
 }
 
@@ -72,4 +82,48 @@ pub struct DeviceInfo {
     pub total_memory: usize,
     pub memory_pools: bool,
     pub integrated: bool,
+}
+
+/// Makes `context` current on this thread through the driver alone. Unlike
+/// cudarc's bind, it neither consumes nor fails on an error that an earlier
+/// operation recorded on the context for its next caller.
+pub(super) fn make_current(context: &CudaContext) -> std::result::Result<(), DriverError> {
+    // SAFETY: the borrowed context is live.
+    unsafe { result::ctx::set_current(context.cu_ctx()) }
+}
+
+/// A context made current by [`bind_current`], until dropped.
+#[must_use = "dropping the binding makes the previous context current again"]
+pub(super) struct CurrentContext {
+    /// The context current before, made current again on drop; `None` when
+    /// the bound context was current already.
+    previous: Option<CUcontext>,
+}
+
+/// Makes `context` current on this thread, like [`make_current`], until the
+/// returned binding drops, which makes current again whatever context the
+/// thread had: teardown and capture queries run on threads that may be using
+/// another context of their own. A thread with the context current already
+/// pays one query.
+pub(super) fn bind_current(
+    context: &CudaContext,
+) -> std::result::Result<CurrentContext, DriverError> {
+    let current = result::ctx::get_current()?;
+    if current == Some(context.cu_ctx()) {
+        return Ok(CurrentContext { previous: None });
+    }
+    make_current(context)?;
+    Ok(CurrentContext {
+        previous: Some(current.unwrap_or(std::ptr::null_mut())),
+    })
+}
+
+impl Drop for CurrentContext {
+    fn drop(&mut self) {
+        if let Some(previous) = self.previous {
+            // SAFETY: restoring the thread's previous binding, or none; a
+            // context destroyed since only makes the driver refuse it.
+            let _restored = unsafe { result::ctx::set_current(previous) };
+        }
+    }
 }

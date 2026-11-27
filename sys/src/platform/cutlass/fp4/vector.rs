@@ -6,7 +6,7 @@ use super::super::super::{
     driver::{Context, Stream},
     memory::{DeviceBuffer, ensure_stream},
 };
-use crate::{Error, Result};
+use crate::{Error, Result, platform::capture_gate};
 
 unsafe extern "C" {
     fn mircuda_fp4_vector_create(
@@ -110,9 +110,10 @@ impl BlockScaledFp4VectorPlan {
 
 impl Drop for BlockScaledFp4VectorPlan {
     fn drop(&mut self) {
-        self.stream.context().record_err(self.stream.context().bind_to_thread());
-        // SAFETY: this value uniquely owns the native plan.
-        unsafe { mircuda_fp4_vector_destroy(self.raw.as_ptr()) };
+        // The native destructor only releases host memory, so it runs at
+        // once, even during a capture of the plan stream.
+        // SAFETY: this is the sole owner of the native plan.
+        unsafe { capture_gate::destroy_plan(&self.stream, self.raw, mircuda_fp4_vector_destroy) };
     }
 }
 

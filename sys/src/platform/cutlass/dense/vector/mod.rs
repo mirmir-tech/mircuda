@@ -1,4 +1,4 @@
-use std::{ffi::c_void, ptr::NonNull, sync::Arc};
+use std::{ffi::c_void, num::NonZeroU16, ptr::NonNull, sync::Arc};
 
 use cudarc::driver::CudaStream;
 
@@ -9,16 +9,22 @@ use super::{
     },
     DenseMatmulDataType,
 };
-use crate::{Error, Result};
+use crate::{
+    Error, Result,
+    platform::capture_gate::{self, CaptureId},
+};
 
 unsafe extern "C" {
     fn mircuda_dense_vector_create(
         data_type: i32,
         n: i32,
         k: i32,
+        kernel: i32,
+        splits: i32,
         stream: *mut c_void,
         output: *mut *mut c_void,
     ) -> i32;
+    fn mircuda_dense_vector_workspace_bytes(plan: *const c_void) -> usize;
     fn mircuda_dense_vector_execute(
         plan: *mut c_void,
         stream: *mut c_void,
@@ -31,17 +37,59 @@ unsafe extern "C" {
     fn mircuda_dense_vector_destroy(plan: *mut c_void);
 }
 
+/// Work decomposition of a matrix-vector plan.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum DenseVectorKernel {
+    /// Each block reduces 32 rows, four per warp, across the whole input; any `k`.
+    RowGroups,
+    /// Each block reduces one row, its warps splitting the input; `k % 8 == 0`.
+    BlockPerRow,
+    /// `splits` blocks per row each reduce a balanced slice of the input into
+    /// an FP32 partial in plan-owned workspace; the last block of a row sums
+    /// the partials in slice order. `k % 8 == 0` and `splits <= k / 8`.
+    SplitK {
+        /// Input slices per output row.
+        splits: NonZeroU16,
+    },
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DenseVectorSpec {
     pub n: usize,
     pub k: usize,
     pub data_type: DenseMatmulDataType,
+    pub kernel: DenseVectorKernel,
+}
+
+impl DenseVectorKernel {
+    /// Byte alignment the input and weight must have: the 16-byte vector
+    /// loads of block-per-row and split-K kernels; row groups read whatever
+    /// width both operands' alignment allows.
+    #[must_use]
+    pub const fn operand_alignment(self) -> usize {
+        match self {
+            Self::RowGroups => size_of::<u16>(),
+            Self::BlockPerRow | Self::SplitK { .. } => 16,
+        }
+    }
+
+    /// Native kernel code and input slices per row.
+    const fn native(self) -> (i32, i32) {
+        match self {
+            Self::RowGroups => (0, 1),
+            Self::BlockPerRow => (1, 1),
+            Self::SplitK { splits } => (2, splits.get() as i32),
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct DenseVectorPlan {
     raw: NonNull<c_void>,
     stream: Arc<CudaStream>,
+    /// The capture that allocated the plan's memory, which its teardown
+    /// may join.
+    capture: Option<CaptureId>,
     spec: DenseVectorSpec,
 }
 
@@ -60,12 +108,15 @@ impl Context {
         }
         self.inner.bind_to_thread()?;
         let mut raw = std::ptr::null_mut();
+        let (kernel, splits) = spec.kernel.native();
         // SAFETY: output is writable and dimensions are checked by the safe caller.
         let status = unsafe {
             mircuda_dense_vector_create(
                 spec.data_type.native(),
                 i32::try_from(spec.n)?,
                 i32::try_from(spec.k)?,
+                kernel,
+                splits,
                 stream.inner.cu_stream().cast(),
                 &raw mut raw,
             )
@@ -74,12 +125,20 @@ impl Context {
         Ok(DenseVectorPlan {
             raw: NonNull::new(raw).ok_or(Error::NullAllocation)?,
             stream: stream.inner.clone(),
+            capture: capture_gate::capture_of(&stream.inner),
             spec,
         })
     }
 }
 
 impl DenseVectorPlan {
+    /// Plan-owned workspace bytes; nonzero only for split-K.
+    #[must_use]
+    pub fn workspace_bytes(&self) -> usize {
+        // SAFETY: raw remains live for the lifetime of this plan.
+        unsafe { mircuda_dense_vector_workspace_bytes(self.raw.as_ptr()) }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn execute(
         &mut self,
@@ -97,6 +156,12 @@ impl DenseVectorPlan {
             ensure_stream(buffer, stream)?;
         }
         validate_sizes(self.spec, input, weight, output)?;
+        let alignment = self.spec.kernel.operand_alignment();
+        for (operand, buffer) in [("input", input), ("weight", weight)] {
+            if !buffer.is_aligned(alignment) {
+                return Err(Error::MisalignedOperand { operand, alignment });
+            }
+        }
         self.stream.context().bind_to_thread()?;
         // SAFETY: buffers share the retained stream and satisfy the fixed shape.
         let status = unsafe {
@@ -116,9 +181,18 @@ impl DenseVectorPlan {
 
 impl Drop for DenseVectorPlan {
     fn drop(&mut self) {
-        self.stream.context().record_err(self.stream.context().bind_to_thread());
-        // SAFETY: this is the sole owner of the native plan.
-        unsafe { mircuda_dense_vector_destroy(self.raw.as_ptr()) };
+        // The native destructor frees the plan's memory on its stream, which
+        // must not land in a capture that did not allocate it.
+        // SAFETY: this is the sole owner of the native plan, and its
+        // destructor enqueues work on the plan stream only.
+        unsafe {
+            capture_gate::release_stream_plan(
+                &self.stream,
+                self.capture,
+                self.raw,
+                mircuda_dense_vector_destroy,
+            );
+        }
     }
 }
 
@@ -147,3 +221,6 @@ const fn check(status: i32) -> Result<()> {
         Err(Error::Cutlass(status))
     }
 }
+
+#[cfg(test)]
+mod tests;

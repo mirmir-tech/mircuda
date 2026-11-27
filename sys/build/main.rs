@@ -1,11 +1,12 @@
 // Build scripts talk to Cargo through stdout `cargo::` directives.
 #![allow(clippy::print_stdout)]
 
+mod flash;
 mod sources;
 
-use std::{env, error::Error};
+use std::{env, error::Error, path::PathBuf};
 
-use sources::{cuda_home, cutlass_dir, flash_attn_dir, nvcc};
+use sources::{cuda_home, cutlass_dir, nvcc};
 
 fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo::rerun-if-env-changed=MIRCUDA_CUTLASS_DIR");
@@ -144,7 +145,7 @@ fn compile_cutlass(configure: &impl Fn(&mut cc::Build)) -> Result<(), Box<dyn Er
     fmha.file("native/fmha_sm80.cu")
         .file("native/fmha_padded.cu")
         .compile("mircuda_cutlass_fmha");
-    compile_flash_attention(configure)?;
+    flash::compile(configure, &PathBuf::from(env::var("OUT_DIR")?))?;
     let mut dense_vector = cc::Build::new();
     configure_cutlass(&mut dense_vector);
     dense_vector
@@ -186,53 +187,6 @@ fn compile_cutlass(configure: &impl Fn(&mut cc::Build)) -> Result<(), Box<dyn Er
     variable_grouped_bf16
         .file("native/variable_grouped_bf16_sm120.cu")
         .compile("mircuda_cutlass_variable_grouped_bf16");
-    Ok(())
-}
-
-fn compile_flash_attention(configure: &impl Fn(&mut cc::Build)) -> Result<(), Box<dyn Error>> {
-    let flash = flash_attn_dir()?;
-    let source = flash.join("csrc/flash_attn/src");
-    let cutlass = flash.join("csrc/cutlass/include");
-    let specialization64 = source.join("flash_fwd_split_hdim64_bf16_causal_sm80.cu");
-    let specialization128 = source.join("flash_fwd_split_hdim128_bf16_causal_sm80.cu");
-    let specialization256 = source.join("flash_fwd_split_hdim256_bf16_causal_sm80.cu");
-    let decode64 = source.join("flash_fwd_split_hdim64_bf16_sm80.cu");
-    let decode128 = source.join("flash_fwd_split_hdim128_bf16_sm80.cu");
-    let decode256 = source.join("flash_fwd_split_hdim256_bf16_sm80.cu");
-    if !specialization64.is_file()
-        || !specialization128.is_file()
-        || !specialization256.is_file()
-        || !decode64.is_file()
-        || !decode128.is_file()
-        || !decode256.is_file()
-        || !cutlass.join("cutlass/cutlass.h").is_file()
-    {
-        return Err(
-            format!("pinned FlashAttention sources not found in {}", flash.display()).into()
-        );
-    }
-    let mut build = cc::Build::new();
-    configure(&mut build);
-    build
-        .include("native/compat")
-        .include(&source)
-        .include(&cutlass)
-        .flag("--expt-extended-lambda")
-        .flag("--use_fast_math")
-        .flag("-include")
-        .flag("native/compat/flash_attn_prelude.h")
-        .define("CUTLASS_ENABLE_DIRECT_CUDA_DRIVER_CALL", "1")
-        .define("FLASHATTENTION_DISABLE_BACKWARD", None)
-        .define("FLASHATTENTION_DISABLE_DROPOUT", None)
-        .define("FLASHATTENTION_DISABLE_PYBIND", None)
-        .file(specialization64)
-        .file(specialization128)
-        .file(specialization256)
-        .file(decode64)
-        .file(decode128)
-        .file(decode256)
-        .file("native/flash_attn2_bf16.cu")
-        .compile("mircuda_flash_attn2");
     Ok(())
 }
 

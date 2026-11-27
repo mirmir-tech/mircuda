@@ -8,7 +8,7 @@ use cudarc::{
 };
 
 pub use self::cubin::CompiledCubin;
-use super::driver::{Context, Stream};
+use super::driver::{Context, Stream, bind_current};
 use crate::Result;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -80,9 +80,12 @@ unsafe impl Sync for ModuleInner {}
 
 impl Drop for ModuleInner {
     fn drop(&mut self) {
-        self.context.record_err(self.context.bind_to_thread());
+        // Raw driver calls leave an error another operation recorded on the
+        // context in place, and the module unloads from its own context.
         // SAFETY: this is the sole owner of the loaded module handle.
-        self.context.record_err(unsafe { result::module::unload(self.handle) });
+        let unloaded = bind_current(&self.context)
+            .and_then(|_current| unsafe { result::module::unload(self.handle) });
+        self.context.record_err(unloaded);
     }
 }
 
@@ -139,7 +142,7 @@ impl Kernel {
             if let KernelArgument::Pointer {
                 stream: allocation_stream,
                 context: allocation_context,
-                cross_stream,
+                foreign,
                 ..
             } = argument
             {
@@ -148,7 +151,7 @@ impl Kernel {
                 }
                 if *allocation_stream != stream_handle {
                     // SAFETY: generated KernelArguments retain the DeviceBuffer borrow.
-                    unsafe { &**cross_stream }.store(true, std::sync::atomic::Ordering::Release);
+                    unsafe { &**foreign }.record(&stream.inner);
                 }
             }
         }
@@ -191,7 +194,7 @@ pub enum KernelArgument {
         value: sys::CUdeviceptr,
         stream: sys::CUstream,
         context: *const CudaContext,
-        cross_stream: *const std::sync::atomic::AtomicBool,
+        foreign: *const super::memory::ForeignStreams,
     },
     U8(u8),
     I8(i8),

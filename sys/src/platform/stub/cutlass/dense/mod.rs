@@ -3,7 +3,7 @@ use crate::Result;
 
 mod vector;
 
-pub use vector::{DenseVectorPlan, DenseVectorSpec};
+pub use vector::{DenseVectorKernel, DenseVectorPlan, DenseVectorSpec};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DenseMatmulDataType {

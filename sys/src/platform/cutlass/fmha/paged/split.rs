@@ -58,6 +58,7 @@ impl FmhaBf16Plan {
         max_context_tokens: usize,
         max_blocks: usize,
         page_block_size: usize,
+        window_size_left: Option<usize>,
         scale: f32,
     ) -> Result<()> {
         validate(
@@ -86,7 +87,12 @@ impl FmhaBf16Plan {
         let lse_elements = num_splits
             .saturating_mul(total_query_tokens)
             .saturating_mul(self.spec.query_heads);
+        // The merge of the splits addresses query row `i` of sequence `b` as
+        // packed row `b * max_query_tokens + i`, so every sequence must hold
+        // `max_query_tokens` queries.
+        let dense = batch_size.checked_mul(max_query_tokens) == Some(total_query_tokens);
         if num_splits < 2
+            || !dense
             || output_accum.bytes() < output_elements.saturating_mul(4)
             || softmax_lse_accum.bytes() < lse_elements.saturating_mul(4)
         {
@@ -118,7 +124,7 @@ impl FmhaBf16Plan {
                 i32::try_from(self.spec.query_heads)?,
                 i32::try_from(self.spec.kv_heads)?,
                 i32::try_from(self.spec.head_dim)?,
-                -1,
+                window_size_left.map_or(Ok(-1), i32::try_from)?,
                 scale,
                 stream.inner.cu_stream().cast(),
             )

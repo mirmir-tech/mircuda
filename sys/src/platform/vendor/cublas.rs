@@ -3,6 +3,7 @@ use std::{ffi::c_void, ptr::NonNull, sync::Arc};
 use cudarc::driver::CudaStream;
 
 use super::super::{
+    capture_gate,
     driver::{Context, Stream},
     memory::{DeviceBuffer, ensure_stream},
 };
@@ -138,9 +139,13 @@ impl CublasDensePlan {
 
 impl Drop for CublasDensePlan {
     fn drop(&mut self) {
-        self.stream.context().record_err(self.stream.context().bind_to_thread());
-        // SAFETY: this is the sole owner of the native plan.
-        unsafe { mircuda_cublas_dense_destroy(self.raw.as_ptr()) };
+        // Releasing the last plan of a stream destroys its cuBLAS handle,
+        // which synchronizes the device: keep that out of running captures.
+        // SAFETY: this is the sole owner of the native plan, and its
+        // destructor enqueues work on the plan stream only.
+        unsafe {
+            capture_gate::release_device_plan(&self.stream, self.raw, mircuda_cublas_dense_destroy);
+        }
     }
 }
 

@@ -8,17 +8,18 @@ mod platform;
 pub use platform::{
     BlockScaledFp4Plan, BlockScaledFp4Spec, BlockScaledFp4VectorPlan, BlockScaledFp4VectorSpec,
     BlockScaledMxFp8Plan, BlockScaledMxFp8Spec, BlockwiseFp8VectorPlan, BlockwiseFp8VectorSpec,
-    DenseMatmulDataType, DenseMatmulPlan, DenseMatmulSpec, DenseVectorPlan, DenseVectorSpec,
-    FmhaBf16Plan, FmhaBf16Spec, IndexedGroupedFp4Plan, IndexedGroupedFp4Spec,
+    DenseMatmulDataType, DenseMatmulPlan, DenseMatmulSpec, DenseVectorKernel, DenseVectorPlan,
+    DenseVectorSpec, FmhaBf16Plan, FmhaBf16Spec, IndexedGroupedFp4Plan, IndexedGroupedFp4Spec,
     PaddedAttentionDataType, PaddedAttentionPlan, PaddedAttentionSpec,
     PairedVariableGroupedFp4Plan, ScaledFp8Plan, ScaledFp8ScaleType, ScaledFp8Spec, ScaledFp8Tile,
     ScaledFp8WeightScaleType, VariableGroupedBf16Plan, VariableGroupedBf16Spec,
     VariableGroupedFp4Plan, VariableGroupedFp4Spec,
 };
 pub use platform::{
-    CaptureMode, CompileSpec, CompiledCubin, CompiledPtx, Context, DeviceBuffer, DeviceInfo,
-    Driver, Event, Graph, Kernel, KernelArgument, KernelNode, LaunchConfig, MemoryPool,
-    MemoryPoolStats, Module, PinnedBuffer, ProfilerRange, Stream, compiler_version,
+    Capture, CaptureActivity, CaptureMode, CompileSpec, CompiledCubin, CompiledPtx, Context,
+    DeviceBuffer, DeviceInfo, Driver, Event, Graph, Kernel, KernelArgument, KernelNode,
+    LaunchConfig, MemoryPool, MemoryPoolStats, Module, PinnedBuffer, ProfilerRange, Stream,
+    capture_activity, compiler_version,
 };
 #[cfg(feature = "cublaslt")]
 pub use platform::{
@@ -111,6 +112,14 @@ pub enum Error {
     /// Native matrix buffers do not cover their declared shape.
     #[error("CUDA matrix buffers do not match the plan shape")]
     InvalidMatmulBuffer,
+    /// A plan operand's address is not aligned for the kernel's loads.
+    #[error("CUDA {operand} buffer must be {alignment}-byte aligned")]
+    MisalignedOperand {
+        /// Operand name.
+        operand: &'static str,
+        /// Required byte alignment.
+        alignment: usize,
+    },
     /// An ahead-of-time CUTLASS plan rejected construction or execution.
     #[error("CUTLASS plan failed with status {0}")]
     Cutlass(i32),

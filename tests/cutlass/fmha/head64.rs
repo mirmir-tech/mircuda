@@ -10,7 +10,6 @@ const HEAD_DIM: usize = 64;
 const PAGE_SIZE: usize = 16;
 
 #[test]
-#[ignore = "single-token CUTLASS GQA compaction currently collapses KV head groups"]
 fn single_token_supports_qwen2_seven_to_one_gqa() -> mircuda::Result<()> {
     const QUERY_HEADS: usize = 14;
     const KV_HEADS: usize = 2;

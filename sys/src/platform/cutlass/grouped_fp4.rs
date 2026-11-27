@@ -6,7 +6,10 @@ use super::super::{
     driver::{Context, Stream},
     memory::{DeviceBuffer, ensure_stream},
 };
-use crate::{Error, Result};
+use crate::{
+    Error, Result,
+    platform::capture_gate::{self, CaptureId},
+};
 
 unsafe extern "C" {
     fn mircuda_grouped_fp4_create(
@@ -47,6 +50,9 @@ pub struct IndexedGroupedFp4Spec {
 pub struct IndexedGroupedFp4Plan {
     raw: NonNull<c_void>,
     stream: Arc<CudaStream>,
+    /// The capture that allocated the plan's memory, which its teardown
+    /// may join.
+    capture: Option<CaptureId>,
     spec: IndexedGroupedFp4Spec,
 }
 
@@ -82,6 +88,7 @@ impl Context {
         Ok(IndexedGroupedFp4Plan {
             raw: NonNull::new(raw).ok_or(Error::NullAllocation)?,
             stream: stream.inner.clone(),
+            capture: capture_gate::capture_of(&stream.inner),
             spec,
         })
     }
@@ -128,9 +135,18 @@ impl IndexedGroupedFp4Plan {
 
 impl Drop for IndexedGroupedFp4Plan {
     fn drop(&mut self) {
-        self.stream.context().record_err(self.stream.context().bind_to_thread());
-        // SAFETY: this is the sole owner of a plan returned by the matching constructor.
-        unsafe { mircuda_grouped_fp4_destroy(self.raw.as_ptr()) };
+        // The native destructor frees the plan's memory on its stream, which
+        // must not land in a capture that did not allocate it.
+        // SAFETY: this is the sole owner of the native plan, and its
+        // destructor enqueues work on the plan stream only.
+        unsafe {
+            capture_gate::release_stream_plan(
+                &self.stream,
+                self.capture,
+                self.raw,
+                mircuda_grouped_fp4_destroy,
+            );
+        }
     }
 }
 

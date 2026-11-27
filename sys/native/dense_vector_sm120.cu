@@ -3,6 +3,7 @@
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
 
+#include <cstdint>
 #include <new>
 
 namespace mircuda::dense_vector {
@@ -10,6 +11,24 @@ namespace mircuda::dense_vector {
 constexpr int kWarps = 8;
 constexpr int kRowsPerWarp = 4;
 constexpr int kRowsPerBlock = kWarps * kRowsPerWarp;
+
+// The first element of weight row `row`: 64-bit, since `n * k` may exceed
+// `INT_MAX` (262145 x 8192 BF16 is about 4 GiB).
+__host__ __device__ inline long long row_offset(int row, int k) {
+  return static_cast<long long>(row) * k;
+}
+
+// The widest input a plan accepts: a column loop's last step, at most
+// `column + 256`, stays below `INT_MAX`, so its `int` induction never
+// overflows and costs nothing per step.
+constexpr int kMaxColumns = 0x7fffffff - 255;
+
+// Row-group blocks covering `n` rows, without the `n + 31` that overflows
+// near `INT_MAX`. Their rows stay below `ceil(n / 32) * 32 <= 2^31`, so a
+// row index never overflows either.
+__host__ __device__ inline int row_blocks(int n) {
+  return n / kRowsPerBlock + (n % kRowsPerBlock != 0);
+}
 
 template <typename Element>
 struct Convert;
@@ -46,14 +65,17 @@ struct Convert<__nv_bfloat16> {
   }
 };
 
+// Reads `width` elements per load: 8 (16 bytes) or 2 (4 bytes) when `k` and
+// both operands' addresses allow it, otherwise one.
 template <typename Element>
 __global__ void kernel(const Element* input, const Element* weight,
-                       Element* output, int n, int k, float alpha, float beta) {
+                       Element* output, int n, int k, int width, float alpha,
+                       float beta) {
   const int lane = threadIdx.x & 31;
   const int warp = threadIdx.x >> 5;
   const int first_row = blockIdx.x * kRowsPerBlock + warp * kRowsPerWarp;
   float sums[kRowsPerWarp] = {};
-  if ((k & 7) == 0) {
+  if (width == 8) {
     for (int column = lane * 8; column < k; column += 256) {
       const uint4 input_bits =
           *reinterpret_cast<const uint4*>(input + column);
@@ -68,7 +90,7 @@ __global__ void kernel(const Element* input, const Element* weight,
         const int row = first_row + item;
         if (row < n) {
           const uint4 weight_bits =
-              *reinterpret_cast<const uint4*>(weight + row * k + column);
+              *reinterpret_cast<const uint4*>(weight + row_offset(row, k) + column);
           const unsigned int pairs[4] = {
               weight_bits.x, weight_bits.y, weight_bits.z, weight_bits.w};
 #pragma unroll
@@ -81,7 +103,7 @@ __global__ void kernel(const Element* input, const Element* weight,
         }
       }
     }
-  } else if ((k & 1) == 0) {
+  } else if (width == 2) {
     const int pairs = k / 2;
     for (int pair = lane; pair < pairs; pair += 32) {
       const float2 input_pair =
@@ -91,7 +113,7 @@ __global__ void kernel(const Element* input, const Element* weight,
         const int row = first_row + item;
         if (row < n) {
           const float2 values =
-              Convert<Element>::pair_to_float(weight + row * k + 2 * pair);
+              Convert<Element>::pair_to_float(weight + row_offset(row, k) + 2 * pair);
           sums[item] = fmaf(input_pair.x, values.x, sums[item]);
           sums[item] = fmaf(input_pair.y, values.y, sums[item]);
         }
@@ -104,7 +126,7 @@ __global__ void kernel(const Element* input, const Element* weight,
       for (int item = 0; item < kRowsPerWarp; ++item) {
         const int row = first_row + item;
         if (row < n) {
-          const float scale = Convert<Element>::to_float(weight[row * k + column]);
+          const float scale = Convert<Element>::to_float(weight[row_offset(row, k) + column]);
           sums[item] = fmaf(value, scale, sums[item]);
         }
       }
@@ -131,28 +153,235 @@ __global__ void kernel(const Element* input, const Element* weight,
   }
 }
 
+// One block per row, its warps splitting the input columns (k % 8 == 0). Few
+// output rows (routers) get one block each instead of one 32-row block; the
+// plan's kernel, measured by the caller's tuner, selects it over `kernel`.
+template <typename Element>
+__global__ void row_kernel(const Element* input, const Element* weight,
+                           Element* output, int n, int k, float alpha,
+                           float beta) {
+  const int lane = threadIdx.x & 31;
+  const int warp = threadIdx.x >> 5;
+  const int row = blockIdx.x;
+  if (row >= n) return;
+  const uint4* in = reinterpret_cast<const uint4*>(input);
+  const uint4* weights = reinterpret_cast<const uint4*>(weight + row_offset(row, k));
+  const int vectors = k / 8;
+  float sum = 0.0f;
+  for (int vector = threadIdx.x; vector < vectors; vector += kWarps * 32) {
+    const uint4 input_bits = in[vector];
+    const uint4 weight_bits = weights[vector];
+    const unsigned int inputs[4] = {input_bits.x, input_bits.y, input_bits.z, input_bits.w};
+    const unsigned int values[4] = {weight_bits.x, weight_bits.y, weight_bits.z, weight_bits.w};
+#pragma unroll
+    for (int pair = 0; pair < 4; ++pair) {
+      const float2 x = Convert<Element>::pair_bits_to_float(inputs[pair]);
+      const float2 w = Convert<Element>::pair_bits_to_float(values[pair]);
+      sum = fmaf(x.x, w.x, sum);
+      sum = fmaf(x.y, w.y, sum);
+    }
+  }
+  for (int offset = 16; offset > 0; offset >>= 1) {
+    sum += __shfl_down_sync(0xffffffffu, sum, offset);
+  }
+  __shared__ float warps[kWarps];
+  if (lane == 0) warps[warp] = sum;
+  __syncthreads();
+  if (threadIdx.x == 0) {
+    float total = 0.0f;
+#pragma unroll
+    for (int item = 0; item < kWarps; ++item) total += warps[item];
+    float result = alpha * total;
+    if (beta != 0.0f) {
+      result = fmaf(beta, Convert<Element>::to_float(output[row]), result);
+    }
+    output[row] = Convert<Element>::from_float(result);
+  }
+}
+
+// Counts one arrived slice: releases this thread's partial and acquires the
+// partials of slices that arrived earlier, without a full `__threadfence`.
+__device__ unsigned int arrive(unsigned int* counter) {
+  unsigned int previous;
+  asm volatile("atom.add.acq_rel.gpu.u32 %0, [%1], 1;"
+               : "=r"(previous)
+               : "l"(counter)
+               : "memory");
+  return previous;
+}
+
+// `n * splits` blocks: each reduces one balanced slice of one row's k / 8
+// vectors into an FP32 partial; the last block to arrive for a row sums that
+// row's partials in slice order, so results do not depend on block timing.
+// Counters return to zero after every launch.
+template <typename Element>
+__global__ void split_kernel(const Element* input, const Element* weight,
+                             Element* output, int n, int k, int splits,
+                             unsigned int* counters, float* partials,
+                             float alpha, float beta) {
+  const int lane = threadIdx.x & 31;
+  const int warp = threadIdx.x >> 5;
+  const int row = blockIdx.x / splits;
+  const int slice = blockIdx.x - row * splits;
+  if (row >= n) return;
+  const long long vectors = k / 8;
+  const int first = static_cast<int>(slice * vectors / splits);
+  const int last = static_cast<int>((slice + 1) * vectors / splits);
+  const uint4* in = reinterpret_cast<const uint4*>(input);
+  const uint4* weights = reinterpret_cast<const uint4*>(weight + row_offset(row, k));
+  float sum = 0.0f;
+#pragma unroll 4
+  for (int vector = first + threadIdx.x; vector < last; vector += kWarps * 32) {
+    const uint4 input_bits = in[vector];
+    const uint4 weight_bits = weights[vector];
+    const unsigned int inputs[4] = {input_bits.x, input_bits.y, input_bits.z, input_bits.w};
+    const unsigned int values[4] = {weight_bits.x, weight_bits.y, weight_bits.z, weight_bits.w};
+#pragma unroll
+    for (int pair = 0; pair < 4; ++pair) {
+      const float2 x = Convert<Element>::pair_bits_to_float(inputs[pair]);
+      const float2 w = Convert<Element>::pair_bits_to_float(values[pair]);
+      sum = fmaf(x.x, w.x, sum);
+      sum = fmaf(x.y, w.y, sum);
+    }
+  }
+  for (int offset = 16; offset > 0; offset >>= 1) {
+    sum += __shfl_down_sync(0xffffffffu, sum, offset);
+  }
+  __shared__ float warps[kWarps];
+  if (lane == 0) warps[warp] = sum;
+  __syncthreads();
+  if (warp != 0) return;
+  float total = 0.0f;
+  if (lane == 0) {
+#pragma unroll
+    for (int item = 0; item < kWarps; ++item) total += warps[item];
+  }
+  if (splits > 1) {
+    unsigned int arrived = 0;
+    if (lane == 0) {
+      partials[static_cast<long long>(row) * splits + slice] = total;
+      arrived = arrive(counters + row);
+    }
+    arrived = __shfl_sync(0xffffffffu, arrived, 0);
+    if (arrived != static_cast<unsigned int>(splits - 1)) return;
+    // Extends lane 0's acquire to the lanes that read the partials.
+    __syncwarp();
+    const float* row_partials = partials + static_cast<long long>(row) * splits;
+    total = 0.0f;
+    for (int item = lane; item < splits; item += 32) {
+      total += __ldcg(row_partials + item);
+    }
+    for (int offset = 16; offset > 0; offset >>= 1) {
+      total += __shfl_down_sync(0xffffffffu, total, offset);
+    }
+    if (lane == 0) counters[row] = 0;
+  }
+  if (lane == 0) {
+    float result = alpha * total;
+    if (beta != 0.0f) {
+      result = fmaf(beta, Convert<Element>::to_float(output[row]), result);
+    }
+    output[row] = Convert<Element>::from_float(result);
+  }
+}
+
 template <typename Element>
 int launch(Plan* plan, const void* input, const void* weight, void* output,
            float alpha, float beta) {
-  const int blocks = (plan->n + kRowsPerBlock - 1) / kRowsPerBlock;
-  kernel<<<blocks, kWarps * 32, 0, plan->stream>>>(
-      static_cast<const Element*>(input), static_cast<const Element*>(weight),
-      static_cast<Element*>(output), plan->n, plan->k, alpha, beta);
+  const auto* typed_input = static_cast<const Element*>(input);
+  const auto* typed_weight = static_cast<const Element*>(weight);
+  auto* typed_output = static_cast<Element*>(output);
+  const auto address = reinterpret_cast<uintptr_t>(input) |
+                       reinterpret_cast<uintptr_t>(weight);
+  // Block-per-row and split-K always load 16 bytes; the caller checks.
+  if (plan->kernel != Kernel::RowGroups && (address & 15) != 0) return -1;
+  if (plan->kernel == Kernel::SplitK) {
+    auto* counters = static_cast<unsigned int*>(plan->workspace);
+    auto* partials = reinterpret_cast<float*>(counters + plan->n);
+    split_kernel<<<plan->n * plan->splits, kWarps * 32, 0, plan->stream>>>(
+        typed_input, typed_weight, typed_output, plan->n, plan->k,
+        plan->splits, counters, partials, alpha, beta);
+  } else if (plan->kernel == Kernel::BlockPerRow) {
+    row_kernel<<<plan->n, kWarps * 32, 0, plan->stream>>>(
+        typed_input, typed_weight, typed_output, plan->n, plan->k, alpha, beta);
+  } else {
+    const int blocks = row_blocks(plan->n);
+    const int width = (plan->k & 7) == 0 && (address & 15) == 0 ? 8
+                      : (plan->k & 1) == 0 && (address & 3) == 0 ? 2
+                                                                 : 1;
+    kernel<<<blocks, kWarps * 32, 0, plan->stream>>>(
+        typed_input, typed_weight, typed_output, plan->n, plan->k, width,
+        alpha, beta);
+  }
   return static_cast<int>(cudaPeekAtLastError());
+}
+
+bool admits(int n, int k, int kernel, int splits) {
+  if (n <= 0 || k <= 0 || k > kMaxColumns) return false;
+  switch (static_cast<Kernel>(kernel)) {
+    case Kernel::RowGroups:
+      return splits == 1;
+    case Kernel::BlockPerRow:
+      return splits == 1 && (k & 7) == 0;
+    case Kernel::SplitK:
+      return (k & 7) == 0 && splits >= 1 && splits <= k / 8 &&
+             static_cast<long long>(n) * splits <= 0x7fffffffLL;
+  }
+  return false;
+}
+
+// Allocates and zeroes the split-K workspace on the plan stream; refused
+// while that stream captures, so the allocation never belongs to a graph.
+int prepare(Plan* plan) {
+  if (plan->kernel != Kernel::SplitK) return 0;
+  cudaStreamCaptureStatus capture = cudaStreamCaptureStatusNone;
+  int error = static_cast<int>(cudaStreamIsCapturing(plan->stream, &capture));
+  if (error != 0) return error;
+  if (capture != cudaStreamCaptureStatusNone) return -1;
+  const size_t counters = static_cast<size_t>(plan->n) * sizeof(unsigned int);
+  plan->workspace_bytes =
+      counters + static_cast<size_t>(plan->n) * plan->splits * sizeof(float);
+  error = static_cast<int>(
+      cudaMallocAsync(&plan->workspace, plan->workspace_bytes, plan->stream));
+  if (error != 0) return error;
+  return static_cast<int>(
+      cudaMemsetAsync(plan->workspace, 0, counters, plan->stream));
 }
 
 }  // namespace mircuda::dense_vector
 
 extern "C" int mircuda_dense_vector_create(int data_type, int n, int k,
+                                             int kernel, int splits,
                                              void* stream, void** output) {
   using namespace mircuda::dense_vector;
   if ((data_type != 0 && data_type != 1) || n <= 0 || k <= 0 ||
-      stream == nullptr || output == nullptr) return -1;
-  auto* plan = new (std::nothrow)
-      Plan{data_type, n, k, static_cast<cudaStream_t>(stream)};
+      !admits(n, k, kernel, splits) || stream == nullptr || output == nullptr)
+    return -1;
+  auto* plan = new (std::nothrow) Plan{data_type, n, k, static_cast<Kernel>(kernel),
+                                       splits, static_cast<cudaStream_t>(stream),
+                                       nullptr, 0};
   if (plan == nullptr) return -2;
+  const int status = prepare(plan);
+  if (status != 0) {
+    if (plan->workspace != nullptr) cudaFreeAsync(plan->workspace, plan->stream);
+    delete plan;
+    return status;
+  }
   *output = plan;
   return 0;
+}
+
+extern "C" long long mircuda_dense_vector_row_offset(int row, int k) {
+  return mircuda::dense_vector::row_offset(row, k);
+}
+
+extern "C" int mircuda_dense_vector_row_blocks(int n) {
+  return mircuda::dense_vector::row_blocks(n);
+}
+
+extern "C" size_t mircuda_dense_vector_workspace_bytes(const void* raw) {
+  auto* plan = static_cast<const mircuda::dense_vector::Plan*>(raw);
+  return plan == nullptr ? 0 : plan->workspace_bytes;
 }
 
 extern "C" int mircuda_dense_vector_execute(
@@ -169,5 +398,8 @@ extern "C" int mircuda_dense_vector_execute(
 }
 
 extern "C" void mircuda_dense_vector_destroy(void* raw) {
-  delete static_cast<mircuda::dense_vector::Plan*>(raw);
+  auto* plan = static_cast<mircuda::dense_vector::Plan*>(raw);
+  if (plan == nullptr) return;
+  if (plan->workspace != nullptr) cudaFreeAsync(plan->workspace, plan->stream);
+  delete plan;
 }

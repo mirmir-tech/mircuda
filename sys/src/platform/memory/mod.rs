@@ -1,22 +1,16 @@
 mod device;
+mod foreign;
 mod handle;
 #[cfg(feature = "foreign-interop")]
 mod interop;
 mod transfer;
 
-use std::{
-    ffi::c_void,
-    ptr::NonNull,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-};
+use std::{ffi::c_void, ptr::NonNull, sync::Arc};
 
 use cudarc::driver::{CudaContext, CudaEvent, CudaStream, result, sys};
 
 use self::handle::MemoryPoolHandle;
-pub use self::handle::MemoryPoolStats;
+pub use self::{foreign::ForeignStreams, handle::MemoryPoolStats};
 use super::driver::{Context, Stream};
 use crate::Result;
 
@@ -96,7 +90,8 @@ impl MemoryPool {
             pointer,
             bytes,
             stream: stream.inner.clone(),
-            cross_stream: Arc::new(AtomicBool::new(false)),
+            foreign: Arc::default(),
+            capture: super::capture_gate::capture_of(&stream.inner),
             owner: None,
         })
     }
@@ -107,7 +102,10 @@ pub struct DeviceBuffer {
     pointer: sys::CUdeviceptr,
     bytes: usize,
     stream: Arc<CudaStream>,
-    cross_stream: Arc<AtomicBool>,
+    foreign: Arc<ForeignStreams>,
+    /// The capture that allocated the buffer as a graph allocation, which
+    /// its free may join; `None` when it was allocated outside any capture.
+    capture: Option<super::capture_gate::CaptureId>,
     owner: Option<Arc<Self>>,
 }
 
@@ -166,7 +164,7 @@ pub(super) fn ensure_stream(buffer: &DeviceBuffer, stream: &Stream) -> Result<()
     if Arc::ptr_eq(&buffer.stream, &stream.inner) {
         Ok(())
     } else if Arc::ptr_eq(buffer.stream.context(), stream.inner.context()) {
-        buffer.cross_stream.store(true, Ordering::Release);
+        buffer.foreign.record(&stream.inner);
         Ok(())
     } else {
         Err(crate::Error::ContextMismatch)

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use cudarc::driver::{CudaContext, profiler_start, profiler_stop};
 
-use super::Context;
+use super::{Context, driver::bind_current};
 use crate::Result;
 
 #[derive(Debug)]
@@ -36,8 +36,10 @@ impl Drop for ProfilerRange {
         if !self.active {
             return;
         }
-        match self.context.bind_to_thread() {
-            Ok(()) => self.context.record_err(profiler_stop()),
+        // Unlike cudarc's bind, the raw driver call neither fails on nor
+        // consumes an error another operation recorded on the context.
+        match bind_current(&self.context) {
+            Ok(_current) => self.context.record_err(profiler_stop()),
             Err(error) => self.context.record_err::<()>(Err(error)),
         }
     }

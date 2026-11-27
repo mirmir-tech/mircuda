@@ -9,9 +9,42 @@ repository.workspace = true
 keywords = ["cuda", "gpu", "nvidia", "inference"]
 categories = ["api-bindings", "hardware-support"]
 
+[[example]]
+name = "dense-vector"
+required-features = ["cublaslt", "cutlass"]
+
+[[example]]
+name = "fp4-vector"
+required-features = ["cutlass"]
+
+[[example]]
+name = "graph"
+required-features = ["cutlass"]
+
+[[example]]
+name = "grouped-bf16"
+required-features = ["cutlass"]
+
+[[example]]
+name = "grouped-fp4"
+required-features = ["cutlass"]
+
+[[example]]
+name = "matmul"
+required-features = ["cutlass"]
+
+[[example]]
+name = "mxfp8-prefill"
+required-features = ["cutlass"]
+
+[[example]]
+name = "qwen3-matmul"
+required-features = ["cublaslt", "cutlass"]
+
 [[test]]
 name = "cutlass"
 path = "tests/cutlass/mod.rs"
+required-features = ["cutlass"]
 
 [[test]]
 name = "interop"
@@ -22,7 +55,7 @@ members = ["macros", "sys"]
 resolver = "3"
 
 [workspace.package]
-version = "0.6.2"
+version = "0.7.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/mirmir-tech/mircuda"
@@ -46,8 +79,8 @@ foreign-interop = ["mircuda-sys/foreign-interop"]
 [dependencies]
 blake3.workspace = true
 half.workspace = true
-mircuda-macros = { path = "macros", version = "0.6.2" }
-mircuda-sys = { path = "sys", version = "0.6.2", default-features = false }
+mircuda-macros = { path = "macros", version = "0.7.0" }
+mircuda-sys = { path = "sys", version = "0.7.0", default-features = false }
 parking_lot.workspace = true
 thiserror.workspace = true
 

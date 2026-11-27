@@ -27,18 +27,19 @@ pub use compiler::{CompileCacheStats, CompileOptions, Compiler, CompilerConfig, 
 pub use cutlass::{
     BlockScaledFp4Plan, BlockScaledFp4Spec, BlockScaledFp4VectorPlan, BlockScaledFp4VectorSpec,
     BlockScaledMxFp8Plan, BlockScaledMxFp8Spec, BlockwiseFp8VectorPlan, BlockwiseFp8VectorSpec,
-    DenseMatmulElement, DenseMatmulOutput, DenseMatmulPlan, DenseMatmulSpec, DenseVectorPlan,
-    DenseVectorSpec, FmhaBf16Plan, FmhaBf16Spec, FmhaCausalWindow, IndexedGroupedFp4Plan,
-    IndexedGroupedFp4Spec, PaddedAttentionElement, PaddedAttentionPlan,
-    PairedVariableGroupedFp4Launch, PairedVariableGroupedFp4Plan, ScaledFp8Plan, ScaledFp8Scale,
-    ScaledFp8Spec, ScaledFp8Tile, ScaledFp8WeightScale, VariableGroupedBf16Plan,
-    VariableGroupedBf16Spec, VariableGroupedFp4Metadata, VariableGroupedFp4Operands,
-    VariableGroupedFp4Plan, VariableGroupedFp4Spec,
+    DENSE_VECTOR_MAX_COLUMNS, DenseMatmulElement, DenseMatmulOutput, DenseMatmulPlan,
+    DenseMatmulSpec, DenseVectorKernel, DenseVectorPlan, DenseVectorSpec, FmhaBf16Plan,
+    FmhaBf16Spec, FmhaCausalWindow, IndexedGroupedFp4Plan, IndexedGroupedFp4Spec,
+    PaddedAttentionElement, PaddedAttentionPlan, PairedVariableGroupedFp4Launch,
+    PairedVariableGroupedFp4Plan, ScaledFp8Plan, ScaledFp8Scale, ScaledFp8Spec, ScaledFp8Tile,
+    ScaledFp8WeightScale, VariableGroupedBf16Plan, VariableGroupedBf16Spec,
+    VariableGroupedFp4Metadata, VariableGroupedFp4Operands, VariableGroupedFp4Plan,
+    VariableGroupedFp4Spec,
 };
 pub use driver::{Context, Device, DeviceInfo, Driver, Stream};
 pub use error::{Error, Result};
 pub use event::Event;
-pub use graph::{CaptureMode, Graph, KernelNode};
+pub use graph::{CaptureActivity, CaptureMode, Graph, KernelNode, capture_activity};
 pub use half::{bf16, f16};
 pub use launch::{
     KernelArguments, KernelScalar, KernelSignature, LaunchConfig, ScalarValue, TypedKernel,
